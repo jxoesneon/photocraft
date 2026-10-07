@@ -1,8 +1,4 @@
 //! Sovereign retained-mode interface for PhotoCraft built on the Martensite GUI engine.
-//!
-//! Replaces immediate-mode egui with Martensite's 64-byte HotNode generational arena,
-//! push-pull reactive signal DAG, and Vello GPU compute rasterization while preserving
-//! 100% of professional raster editing muscle memory within strict legal boundaries.
 
 pub mod command_reg;
 pub mod menus;

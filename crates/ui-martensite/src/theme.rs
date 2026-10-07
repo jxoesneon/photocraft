@@ -52,8 +52,6 @@ pub struct CraftTheme {
 }
 
 impl CraftTheme {
-    /// Photoshop-aligned Dark Neutral: provides the exact functional color neutrality required
-    /// for pre-press visual perception while remaining legally distinct from Adobe Spectrum.
     pub fn dark_neutral() -> Self {
         Self {
             surface_app_bg: RgbaColor::rgb(50, 50, 50),
@@ -73,7 +71,6 @@ impl CraftTheme {
         }
     }
 
-    /// Studio Obsidian: deep slate contrast theme with vibrant cyan highlights.
     pub fn studio_obsidian() -> Self {
         Self {
             surface_app_bg: RgbaColor::rgb(18, 21, 27),
