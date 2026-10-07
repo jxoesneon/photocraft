@@ -1,0 +1,20 @@
+[package]
+name = "photocraft-ui-martensite"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Sovereign retained-mode, GPU-accelerated graphical user interface for PhotoCraft powered by Martensite"
+
+[dependencies]
+photocraft-engine = { path = "../engine" }
+photocraft-doc = { path = "../doc" }
+photocraft-geom = { path = "../geom" }
+photocraft-color = { path = "../color" }
+photocraft-cms = { path = "../cms" }
+
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+proptest = "1.4"
