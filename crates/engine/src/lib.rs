@@ -119,6 +119,28 @@ pub enum EngineError {
 
 pub type Result<T> = std::result::Result<T, EngineError>;
 
+/// The application engine: documents, commands, history and tool state.
+/// Named `Engine` so UIs (egui, Martensite, headless) refer to one type.
+pub type Engine = Session;
+
+/// Toolbox tool identity, in Photoshop order. UI-agnostic so every front-end
+/// shares the canonical list; each UI maps it to its own presentation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Tool {
+    Move,
+    Marquee,
+    Lasso,
+    QuickSelection,
+    Crop,
+    Brush,
+    Eraser,
+    Gradient,
+    Type,
+    Pen,
+    Hand,
+    Zoom,
+}
+
 /// The pixels of a raster layer (typically one a command just created), as an error instead
 /// of a panic if the layer has none.
 pub(crate) fn pixels_mut(l: &mut photocraft_doc::Layer) -> Result<&mut photocraft_raster::Surface> {
