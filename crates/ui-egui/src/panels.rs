@@ -333,7 +333,8 @@ pub fn title_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                 let (mark, _) = ui.allocate_exact_size(vec2(side, side), Sense::hover());
                 crate::brand::paint_mark(ui, mark);
                 ui.add_space(6.0);
-                menus_right = crate::menus::menu_bar(app, ui);
+                // With the macOS menu bar the menus are at the top of the screen instead.
+                menus_right = if app.services.native_menu.is_some() { ui.cursor().left() } else { crate::menus::menu_bar(app, ui) };
                 // The menu bar takes the whole row, so the right-hand group gets its own rect:
                 // from the menus to the bar's end, or to the caption buttons.
                 let right_edge = if custom { full.right() - crate::titlebar::WIDTH - 4.0 } else { full.right() };
@@ -1526,6 +1527,12 @@ fn layers(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                 actions.push(done);
             }
         });
+    // A layer being dragged can also be dropped on the footer's Delete, New Layer and Group
+    // buttons (#736); read the drag before it ends.
+    let footer_drag = ctx.data(|d| d.get_temp::<u64>(egui::Id::new("layer-drag"))).map(|id| {
+        let in_selection = selection.iter().any(|s| s.0 == id);
+        (id, in_selection)
+    });
     // End any layer drag after every row has had a chance to accept the drop.
     if ctx.input(|i| i.pointer.any_released()) {
         ctx.data_mut(|d| d.remove::<u64>(egui::Id::new("layer-drag")));
@@ -1536,15 +1543,21 @@ fn layers(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 2.0;
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            if icons::button(ui, "trash", 26.0, false, tl!("Delete layer")).clicked() {
+            let trash = icons::button(ui, "trash", 26.0, false, tl!("Delete layer"));
+            if trash.clicked() {
                 actions.push(("layer.delete".into(), json!({})));
             }
-            if icons::button(ui, "square-plus", 26.0, false, &crate::shortcuts::tip_label(app, "Create a new layer", "layer.new.layer")).clicked() {
+            actions.extend(footer_drop(ui, &trash, footer_drag, "layer.delete"));
+            let new_layer = icons::button(ui, "square-plus", 26.0, false, &crate::shortcuts::tip_label(app, "Create a new layer", "layer.new.layer"));
+            if new_layer.clicked() {
                 actions.push(("layer.new.layer".into(), json!({})));
             }
-            if icons::button(ui, "folder", 26.0, false, tl!("Create a new group")).clicked() {
+            actions.extend(footer_drop(ui, &new_layer, footer_drag, "layer.duplicate"));
+            let group = icons::button(ui, "folder", 26.0, false, tl!("Create a new group"));
+            if group.clicked() {
                 actions.push(("layer.new.group".into(), json!({})));
             }
+            actions.extend(footer_drop(ui, &group, footer_drag, "layer.groupLayers"));
             let adj = icons::button(ui, "contrast", 26.0, false, tl!("Create new fill or adjustment layer"));
             egui::Popup::menu(&adj).show(|ui| {
                 ui.set_min_width(190.0);
@@ -1619,6 +1632,34 @@ fn layers(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
             continue;
         }
         let _ = app.run(&id, p);
+    }
+}
+
+/// A layer row dragged onto a Layers panel footer button, as in Photoshop: onto Delete deletes it,
+/// onto New Layer duplicates it, onto New Group groups it. A row that is part of the selection
+/// carries the whole selection; any other row goes alone. Highlights the button while over it and
+/// returns the command on release.
+fn footer_drop(ui: &egui::Ui, button: &egui::Response, drag: Option<(u64, bool)>, command: &str) -> Option<(String, Value)> {
+    // Named for screen readers (and tests) after the command a drop runs.
+    button.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, footer_label(command)));
+    let (layer, in_selection) = drag?;
+    let p = ui.ctx().input(|i| i.pointer.interact_pos())?;
+    if !button.rect.contains(p) {
+        return None;
+    }
+    let t = Tokens::get(ui.ctx());
+    ui.painter().rect_stroke(button.rect, t.radius_sm, Stroke::new(2.0, t.accent), StrokeKind::Inside);
+    if !ui.ctx().input(|i| i.pointer.any_released()) {
+        return None;
+    }
+    Some((command.into(), if in_selection { json!({}) } else { json!({"layer": layer}) }))
+}
+
+fn footer_label(command: &str) -> &'static str {
+    match command {
+        "layer.delete" => tl!("Delete layer"),
+        "layer.duplicate" => tl!("Create a new layer"),
+        _ => tl!("Create a new group"),
     }
 }
 
