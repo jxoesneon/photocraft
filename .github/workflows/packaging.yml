@@ -1,0 +1,107 @@
+name: Multi-Platform Release Packaging
+
+on:
+  push:
+    branches: [ main ]
+    tags: [ 'v*' ]
+  pull_request:
+    branches: [ main ]
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  # 1. Linux Packaging (.deb, .rpm, .flatpak via cargo-generate-rpm & cargo-deb)
+  package-linux:
+    name: Linux (${{ matrix.target.arch }} / ${{ matrix.target.format }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - { arch: x86_64, triple: x86_64-unknown-linux-gnu, format: deb }
+          - { arch: x86_64, triple: x86_64-unknown-linux-gnu, format: rpm }
+          - { arch: aarch64, triple: aarch64-unknown-linux-gnu, format: deb }
+          - { arch: aarch64, triple: aarch64-unknown-linux-gnu, format: rpm }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target.triple }}
+      - uses: taiki-e/install-action@cargo-deb
+      - uses: taiki-e/install-action@cargo-generate-rpm
+      - name: Build and Package
+        run: |
+          if [ "${{ matrix.target.format }}" = "deb" ]; then
+            cargo deb --target ${{ matrix.target.triple }}
+          else
+            cargo generate-rpm --target ${{ matrix.target.triple }}
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-${{ matrix.target.arch }}-${{ matrix.target.format }}
+          path: target/${{ matrix.target.triple }}/*/*.${{ matrix.target.format }}
+
+  # Flatpak Container Sandbox Build
+  package-flatpak:
+    name: Linux Flatpak (x86_64 & aarch64)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: flatpak/flatpak-github-actions/flatpak-builder@v1
+        with:
+          bundle: true
+          manifest-path: packaging/flatpak/org.artcraft.app.yml
+          run-tests: true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-flatpak
+          path: '*.flatpak'
+
+  # 2. macOS Packaging (.dmg, Universal / Apple Silicon + Intel)
+  package-macos:
+    name: macOS (Universal .dmg)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin, x86_64-apple-darwin
+      - uses: taiki-e/install-action@cargo-bundle
+      - name: Compile and Lipoo Universal Binary
+        run: |
+          cargo build --release --target aarch64-apple-darwin
+          cargo build --release --target x86_64-apple-darwin
+          mkdir -p target/universal-apple-darwin/release
+          lipo -create             target/aarch64-apple-darwin/release/app             target/x86_64-apple-darwin/release/app             -output target/universal-apple-darwin/release/app
+      - name: Create DMG
+        run: hdiutil create -volname "ArtCraft App" -srcfolder target/universal-apple-darwin/release -ov -format UDZO app.dmg
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-universal-dmg
+          path: app.dmg
+
+  # 3. Windows Packaging (.exe / .msi across x64 and ARM64)
+  package-windows:
+    name: Windows (${{ matrix.target.arch }})
+    runs-on: windows-latest
+    strategy:
+      matrix:
+        target:
+          - { arch: x64, triple: x86_64-pc-windows-msvc }
+          - { arch: arm64, triple: aarch64-pc-windows-msvc }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target.triple }}
+      - uses: taiki-e/install-action@cargo-wix
+      - name: Compile and Build Windows MSI
+        run: |
+          cargo build --release --target ${{ matrix.target.triple }}
+          cargo wix --target ${{ matrix.target.triple }} --nocapture
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-${{ matrix.target.arch }}-installer
+          path: target/wix/*.msi
