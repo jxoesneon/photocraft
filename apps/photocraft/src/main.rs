@@ -1,5 +1,7 @@
 //! PhotoCraft desktop application — 100% sovereign Martensite runtime.
 
+#![cfg_attr(all(target_os = "windows", not(debug_assertions)), windows_subsystem = "windows")]
+
 use photocraft_engine::Engine;
 use photocraft_ui_martensite::PhotocraftApp;
 
