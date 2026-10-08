@@ -2,18 +2,26 @@ app-id: org.artcraft.app
 runtime: org.freedesktop.Platform
 runtime-version: '25.08'
 sdk: org.freedesktop.Sdk
-command: app
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.rust-stable
+command: photocraft
 finish-args:
   - --share=ipc
   - --socket=fallback-x11
   - --socket=wayland
   - --device=dri
+build-options:
+  append-path: /usr/lib/sdk/rust-stable/bin
+  build-args:
+    - --share=network
+  env:
+    CARGO_HOME: /run/build/photocraft/cargo
 modules:
-  - name: app
+  - name: photocraft
     buildsystem: simple
     build-commands:
-      - cargo build --release
-      - install -Dm755 target/release/app /app/bin/app
+      - cargo build --release -p photocraft
+      - install -Dm755 target/release/photocraft /app/bin/photocraft
     sources:
       - type: dir
-        path: .
+        path: ../../

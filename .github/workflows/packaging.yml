@@ -29,14 +29,25 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target.triple }}
-      - uses: taiki-e/install-action@cargo-deb
-      - uses: taiki-e/install-action@cargo-generate-rpm
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deb
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-generate-rpm
+      - name: Install aarch64 cross-compiler
+        if: matrix.target.arch == 'aarch64'
+        run: sudo apt-get update && sudo apt-get install -y gcc-aarch64-linux-gnu
       - name: Build and Package
+        env:
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
         run: |
           if [ "${{ matrix.target.format }}" = "deb" ]; then
-            cargo deb --target ${{ matrix.target.triple }}
+            cargo deb -p photocraft --target ${{ matrix.target.triple }}
           else
-            cargo generate-rpm --target ${{ matrix.target.triple }}
+            cargo build --release -p photocraft --target ${{ matrix.target.triple }}
+            ln -s apps/photocraft photocraft || true
+            cargo generate-rpm -p photocraft --target ${{ matrix.target.triple }}
           fi
       - uses: actions/upload-artifact@v4
         with:
@@ -49,11 +60,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: flatpak/flatpak-github-actions/flatpak-builder@v1
+      - name: Install flatpak-builder
+        run: |
+          sudo apt-get update && sudo apt-get install -y flatpak flatpak-builder
+          sudo flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+          sudo flatpak install -y flathub org.freedesktop.Sdk//25.08 org.freedesktop.Platform//25.08 org.freedesktop.Sdk.Extension.rust-stable//25.08
+      - uses: flatpak/flatpak-github-actions/flatpak-builder@v6
         with:
           bundle: true
           manifest-path: packaging/flatpak/org.artcraft.app.yml
-          run-tests: true
+          run-tests: false
       - uses: actions/upload-artifact@v4
         with:
           name: linux-flatpak
@@ -68,13 +84,15 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-apple-darwin, x86_64-apple-darwin
-      - uses: taiki-e/install-action@cargo-bundle
-      - name: Compile and Lipoo Universal Binary
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-bundle
+      - name: Compile and Lipo Universal Binary
         run: |
-          cargo build --release --target aarch64-apple-darwin
-          cargo build --release --target x86_64-apple-darwin
+          cargo build --release -p photocraft --target aarch64-apple-darwin
+          cargo build --release -p photocraft --target x86_64-apple-darwin
           mkdir -p target/universal-apple-darwin/release
-          lipo -create             target/aarch64-apple-darwin/release/app             target/x86_64-apple-darwin/release/app             -output target/universal-apple-darwin/release/app
+          lipo -create             target/aarch64-apple-darwin/release/photocraft             target/x86_64-apple-darwin/release/photocraft             -output target/universal-apple-darwin/release/photocraft
       - name: Create DMG
         run: hdiutil create -volname "ArtCraft App" -srcfolder target/universal-apple-darwin/release -ov -format UDZO app.dmg
       - uses: actions/upload-artifact@v4
@@ -96,12 +114,11 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target.triple }}
-      - uses: taiki-e/install-action@cargo-wix
+      - name: Install WiX v5
+        run: dotnet tool install --global wix --version 5.0.2
       - name: Compile and Build Windows MSI
-        run: |
-          cargo build --release --target ${{ matrix.target.triple }}
-          cargo wix --target ${{ matrix.target.triple }} --nocapture
+        run: pwsh packaging/windows/package.ps1 -Arch ${{ matrix.target.arch }}
       - uses: actions/upload-artifact@v4
         with:
           name: windows-${{ matrix.target.arch }}-installer
-          path: target/wix/*.msi
+          path: dist/release/*

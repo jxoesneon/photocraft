@@ -11,3 +11,8 @@ photocraft-engine = { path = "../../crates/engine" }
 photocraft-ui-martensite = { path = "../../crates/ui-martensite" }
 tracing.workspace = true
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[package.metadata.generate-rpm]
+assets = [
+    { source = "target/release/photocraft", dest = "/usr/bin/photocraft", mode = "755" }
+]
