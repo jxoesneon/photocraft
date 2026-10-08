@@ -1,6 +1,6 @@
 //! Menu bar items and accessible hierarchy generation.
 
-use crate::command_reg::{CommandCategory, CommandSpec, commands_by_category};
+use crate::command_reg::{CommandCategory, commands_by_category};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct MenuItemDef {

@@ -6,12 +6,11 @@
 use photocraft_engine::{Engine, Tool};
 use photocraft_ui_martensite::{
     PhotocraftApp,
-    command_reg::{COMMAND_REGISTRY, find_command},
+    command_reg::find_command,
     menus::generate_main_menu,
     theme::CraftTheme,
     widgets::{
-        CanvasViewWidget, DockPanelGroup, LayerItemDef, LayerTreeWidget, OptionsBarWidget,
-        ScrubbyInputWidget, TonalBlendingWidget, ToolStripWidget,
+        DockPanelGroup, LayerItemDef, LayerTreeWidget, OptionsBarWidget, TonalBlendingWidget,
     },
 };
 

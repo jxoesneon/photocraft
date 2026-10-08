@@ -4,6 +4,8 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 description = "Tombstone: Fully migrated to photocraft-ui-martensite. Zero legacy remnants."
+# Upstream's build.rs needs deps this tombstone no longer carries; nothing it emits is used.
+build = false
 
 [dependencies]
 photocraft-ui-martensite = { path = "../ui-martensite" }
