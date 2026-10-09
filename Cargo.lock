@@ -283,6 +283,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "alloc-no-stdlib"
+version = "2.0.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cc7bb162ec39d46ab1ca8c77bf72e890535becd1751bb45f64c597edb4c8c6b3"
+
+[[package]]
+name = "alloc-stdlib"
+version = "0.2.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0e76a019e91224d279006ff972f1e984179a6e9feb050adba6ce8274aef23195"
+dependencies = [
+ "alloc-no-stdlib",
+]
+
+[[package]]
 name = "allocator-api2"
 version = "0.2.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -369,7 +384,7 @@ dependencies = [
  "objc2-foundation 0.3.2",
  "parking_lot",
  "percent-encoding",
- "windows-sys 0.52.0",
+ "windows-sys 0.60.2",
  "x11rb",
 ]
 
@@ -770,6 +785,16 @@ checksum = "553c5d846a6ba5150c65e3b1b8ec073bcf1abc20f9b7220de384a4443ea4e20a"
 dependencies = [
  "bytes",
  "cfg_aliases",
+]
+
+[[package]]
+name = "brotli-decompressor"
+version = "5.0.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3a32acac15fe1967bc3986b2a6347dffc965602354ea6f450ad07e8bfd253583"
+dependencies = [
+ "alloc-no-stdlib",
+ "alloc-stdlib",
 ]
 
 [[package]]
@@ -1597,7 +1622,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -2541,7 +2566,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "20fd6de4ccfcc187e38bc21cfa543cb5a302cb86a8b114eb7f0bf0dc9f8ac00f"
 dependencies = [
  "io-lifetimes 3.0.1",
- "windows-sys 0.52.0",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -2570,7 +2595,7 @@ checksum = "3640c1c38b8e4e43584d8df18be5fc6b0aa314ce6ebf51b53313d4306cca8e46"
 dependencies = [
  "hermit-abi",
  "libc",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -2705,6 +2730,184 @@ dependencies = [
  "cfg-if",
  "futures-util",
  "wasm-bindgen",
+]
+
+[[package]]
+name = "jxl-bitstream"
+version = "1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b480e752277e29eb4054f69546887a9b84656fe78c08f54ba5850ced98a378fe"
+dependencies = [
+ "tracing",
+]
+
+[[package]]
+name = "jxl-coding"
+version = "1.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cd972bcd125e776f1eb241ac50e39f956095a1c2770c64736c968f8946bd9a3c"
+dependencies = [
+ "jxl-bitstream",
+ "tracing",
+]
+
+[[package]]
+name = "jxl-color"
+version = "0.11.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f316b1358c1711755b3ee8e8cb5c4a1dad12e796233088a7a513440782de80b2"
+dependencies = [
+ "jxl-bitstream",
+ "jxl-coding",
+ "jxl-grid",
+ "jxl-image",
+ "jxl-oxide-common",
+ "jxl-threadpool",
+ "tracing",
+]
+
+[[package]]
+name = "jxl-frame"
+version = "0.13.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2d967c6fd669c7c01060b5022d8835fa82fd46b06ffc98b549f17600a097c2b3"
+dependencies = [
+ "jxl-bitstream",
+ "jxl-coding",
+ "jxl-grid",
+ "jxl-image",
+ "jxl-modular",
+ "jxl-oxide-common",
+ "jxl-threadpool",
+ "jxl-vardct",
+ "tracing",
+]
+
+[[package]]
+name = "jxl-grid"
+version = "0.6.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "01671307879a033bfa52e6e8784b941aca770b3f3a7d33830b455b6844f793fb"
+dependencies = [
+ "tracing",
+]
+
+[[package]]
+name = "jxl-image"
+version = "0.13.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c5f752d62577c702a94dbbce4045caf08cb58639e8a4d56464b40ecf33ffe565"
+dependencies = [
+ "jxl-bitstream",
+ "jxl-grid",
+ "jxl-oxide-common",
+ "tracing",
+]
+
+[[package]]
+name = "jxl-jbr"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e35d032bcec660647828527ff42c6f5776d2fd44b8357f9f6d9ac6dc07218e46"
+dependencies = [
+ "brotli-decompressor",
+ "jxl-bitstream",
+ "jxl-frame",
+ "jxl-grid",
+ "jxl-image",
+ "jxl-modular",
+ "jxl-oxide-common",
+ "jxl-threadpool",
+ "jxl-vardct",
+ "tracing",
+]
+
+[[package]]
+name = "jxl-modular"
+version = "0.11.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2a2f045b24c738dd91d482be385512b512721ae08a671bd4b27bf1c47f215235"
+dependencies = [
+ "jxl-bitstream",
+ "jxl-coding",
+ "jxl-grid",
+ "jxl-oxide-common",
+ "jxl-threadpool",
+ "tracing",
+]
+
+[[package]]
+name = "jxl-oxide"
+version = "0.12.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d36c662923f47586880211f3bc7c0d83fb3a9b410d278c7bde93450748abeef3"
+dependencies = [
+ "brotli-decompressor",
+ "jxl-bitstream",
+ "jxl-color",
+ "jxl-frame",
+ "jxl-grid",
+ "jxl-image",
+ "jxl-jbr",
+ "jxl-oxide-common",
+ "jxl-render",
+ "jxl-threadpool",
+ "tracing",
+]
+
+[[package]]
+name = "jxl-oxide-common"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b62394c5021b3a9e7e0dbb2d639d555d019090c9946c39f6d3b09d390db4157b"
+dependencies = [
+ "jxl-bitstream",
+]
+
+[[package]]
+name = "jxl-render"
+version = "0.12.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d34386bfdb6a19b5a30cc9beb4d475d537422c31ae8c39bb69640fcce3fcaf19"
+dependencies = [
+ "bytemuck",
+ "jxl-bitstream",
+ "jxl-coding",
+ "jxl-color",
+ "jxl-frame",
+ "jxl-grid",
+ "jxl-image",
+ "jxl-modular",
+ "jxl-oxide-common",
+ "jxl-threadpool",
+ "jxl-vardct",
+ "tracing",
+]
+
+[[package]]
+name = "jxl-threadpool"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "25f15eb830aa77a7f21148d72e153562a26bfe570139bd4922eab1908dd499d3"
+dependencies = [
+ "rayon",
+ "rayon-core",
+ "tracing",
+]
+
+[[package]]
+name = "jxl-vardct"
+version = "0.11.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ce72a18c6d3a47172ab6c479be2bdb56f22066b5d7092663f03b4490820b4511"
+dependencies = [
+ "jxl-bitstream",
+ "jxl-coding",
+ "jxl-grid",
+ "jxl-modular",
+ "jxl-oxide-common",
+ "jxl-threadpool",
+ "tracing",
 ]
 
 [[package]]
@@ -4302,6 +4505,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "photocraft-affinity"
+version = "0.5.0"
+dependencies = [
+ "crc32fast",
+ "flate2",
+ "proptest",
+ "ruzstd",
+]
+
+[[package]]
 name = "photocraft-algo"
 version = "0.5.0"
 dependencies = [
@@ -4309,6 +4522,7 @@ dependencies = [
  "photocraft-geom",
  "photocraft-raster",
  "rayon",
+ "rustfft",
  "serde",
  "serde_json",
 ]
@@ -4417,6 +4631,7 @@ version = "0.5.0"
 dependencies = [
  "blake3",
  "flate2",
+ "photocraft-affinity",
  "photocraft-algo",
  "photocraft-cms",
  "photocraft-codecs",
@@ -4453,6 +4668,7 @@ dependencies = [
  "photocraft-geom",
  "photocraft-raster",
  "proptest",
+ "rustix 1.1.5",
  "ruzstd",
  "serde",
  "serde_json",
@@ -4495,6 +4711,9 @@ name = "photocraft-io"
 version = "0.5.0"
 dependencies = [
  "blake3",
+ "crc32fast",
+ "flate2",
+ "photocraft-affinity",
  "photocraft-algo",
  "photocraft-cms",
  "photocraft-codecs",
@@ -4573,9 +4792,13 @@ dependencies = [
 name = "photocraft-raw"
 version = "0.5.0"
 dependencies = [
+ "flate2",
+ "jxl-oxide",
  "photocraft-raw",
  "png 0.18.1",
  "rayon",
+ "zune-core 0.5.3",
+ "zune-jpegxl",
 ]
 
 [[package]]
@@ -4830,6 +5053,15 @@ name = "presser"
 version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e8cf8e6a8aa66ce33f63993ffc4ea4271eb5b0530a9002db8455ea6050c77bfa"
+
+[[package]]
+name = "primal-check"
+version = "0.3.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dc0d895b311e3af9902528fbb8f928688abbd95872819320517cc24ca6b2bd08"
+dependencies = [
+ "num-integer",
+]
 
 [[package]]
 name = "proc-macro-crate"
@@ -5364,6 +5596,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "rustfft"
+version = "6.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "21db5f9893e91f41798c88680037dba611ca6674703c1a18601b01a72c8adb89"
+dependencies = [
+ "num-complex",
+ "num-integer",
+ "num-traits",
+ "primal-check",
+ "strength_reduce",
+ "transpose",
+]
+
+[[package]]
 name = "rustix"
 version = "0.38.44"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5386,7 +5632,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys 0.12.1",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -5880,6 +6126,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
 
 [[package]]
+name = "strength_reduce"
+version = "0.2.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fe895eb47f22e2ddd4dabc02bce419d2e643c8e3b585c78158b349195bc24d82"
+
+[[package]]
 name = "strict-num"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5995,10 +6247,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.3.4",
+ "getrandom 0.4.3",
  "once_cell",
  "rustix 1.1.5",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -6360,6 +6612,16 @@ dependencies = [
  "tracing",
  "tracing-core",
  "tracing-log",
+]
+
+[[package]]
+name = "transpose"
+version = "0.2.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1ad61aed86bc3faea4300c7aee358b4c6d0c8d6ccc36524c96e4c92ccf26e77e"
+dependencies = [
+ "num-integer",
+ "strength_reduce",
 ]
 
 [[package]]
@@ -7187,7 +7449,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -8297,6 +8559,15 @@ name = "zune-jpeg"
 version = "0.5.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "27bc9d5b815bc103f142aa054f561d9187d191692ec7c2d1e2b4737f8dbd7296"
+dependencies = [
+ "zune-core 0.5.3",
+]
+
+[[package]]
+name = "zune-jpegxl"
+version = "0.5.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cba11ecd07cc23351500e840ae03841b7e4997923ec8e4832ee3ae199ea0b6b4"
 dependencies = [
  "zune-core 0.5.3",
 ]
