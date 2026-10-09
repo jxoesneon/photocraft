@@ -7,3 +7,13 @@ Cargo.lock
 # Demonstration artifacts
 /brag/
 brag/
+
+# Upstream ignores
+/dist
+/corpus
+/log
+/secrets
+/temp
+/book/output
+/craft-fonts
+*.log

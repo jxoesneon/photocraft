@@ -25,12 +25,7 @@ pub struct KeyboardEngine {
 
 impl KeyboardEngine {
     pub fn new() -> Self {
-        Self {
-            prior_tool: None,
-            space_held: false,
-            z_held: false,
-            alt_held: false,
-        }
+        Self { prior_tool: None, space_held: false, z_held: false, alt_held: false }
     }
 
     pub fn on_key_down(&mut self, key: &str, current: Tool) -> Option<Tool> {
@@ -81,6 +76,12 @@ impl KeyboardEngine {
             }
             _ => None,
         }
+    }
+}
+
+impl Default for KeyboardEngine {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

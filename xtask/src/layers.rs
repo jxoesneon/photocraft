@@ -61,6 +61,7 @@ pub const TABLE: &[(&str, Class)] = &[
     ("plugins", Class::Layer(4)),
     ("engine", Class::Layer(5)),
     ("ui-egui", Class::Layer(6)),
+    ("ui-martensite", Class::Layer(6)),
     ("automation", Class::Layer(6)),
     ("platform", Class::Layer(6)),
     ("testkit", Class::Testkit),
@@ -75,7 +76,12 @@ pub const TABLE: &[(&str, Class)] = &[
 /// The L0 foundation is a small chain: `raster` builds on `color` and
 /// `geom`, which the §3 diagram draws on one line. The GPU backend (`gpu`)
 /// reuses the CPU reference (`compose`) for LUTs and parity tests.
-pub const INTRA_LAYER_ORDER: &[&[&str]] = &[&["geom", "cms", "color", "raster"], &["compose", "gpu"]];
+pub const INTRA_LAYER_ORDER: &[&[&str]] = &[
+    &["geom", "cms", "color", "raster"],
+    &["compose", "gpu"],
+    // The egui facade is a compatibility shim over the Martensite UI.
+    &["ui-martensite", "ui-egui"],
+];
 
 fn intra_layer_allowed(from: &str, to: &str) -> bool {
     let (from, to) = (short_name(from), short_name(to));
@@ -97,7 +103,7 @@ fn standalone_exception(from: &str, to: &str) -> bool {
 
 /// External crates that constitute a UI toolkit / windowing dependency.
 /// Entries ending in `*` are prefixes.
-pub const UI_CRATES: &[&str] = &["egui", "eframe", "winit", "egui_kittest", "rfd", "bevy*"];
+pub const UI_CRATES: &[&str] = &["egui", "eframe", "winit", "egui_kittest", "rfd", "bevy*", "martensite*"];
 
 /// First layer allowed to use UI crates.
 pub const UI_MIN_LAYER: u8 = 6;

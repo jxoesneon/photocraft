@@ -18,18 +18,11 @@ impl RgbaColor {
     }
 
     pub fn to_f32_array(self) -> [f32; 4] {
-        [
-            self.r as f32 / 255.0,
-            self.g as f32 / 255.0,
-            self.b as f32 / 255.0,
-            self.a as f32 / 255.0,
-        ]
+        [self.r as f32 / 255.0, self.g as f32 / 255.0, self.b as f32 / 255.0, self.a as f32 / 255.0]
     }
 
     pub fn luminance(&self) -> f32 {
-        0.2126 * (self.r as f32 / 255.0)
-            + 0.7152 * (self.g as f32 / 255.0)
-            + 0.0722 * (self.b as f32 / 255.0)
+        0.2126 * (self.r as f32 / 255.0) + 0.7152 * (self.g as f32 / 255.0) + 0.0722 * (self.b as f32 / 255.0)
     }
 }
 

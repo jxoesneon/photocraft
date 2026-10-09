@@ -1,13 +1,17 @@
 //! Sovereign retained-mode interface for PhotoCraft built on the Martensite GUI engine.
 
 pub mod command_reg;
+pub mod commands;
+pub mod control;
 pub mod menus;
+pub mod runner;
+pub mod shell;
 pub mod shortcuts;
 pub mod theme;
 pub mod widgets;
 
-use std::sync::{Arc, Mutex};
 use photocraft_engine::Engine;
+use std::sync::{Arc, Mutex};
 
 /// Application state container managing the Martensite GUI pipeline.
 pub struct PhotocraftApp {
@@ -20,6 +24,9 @@ pub struct PhotocraftApp {
     pub rulers_visible: bool,
     pub quick_mask_active: bool,
     pub is_dirty: bool,
+    /// Startup notices the shell drains onto the status bar (non-Unicode paths,
+    /// portable-mode warnings, launch-time file opens that failed).
+    pub pending_notices: Vec<String>,
 }
 
 impl PhotocraftApp {
@@ -34,6 +41,7 @@ impl PhotocraftApp {
             rulers_visible: true,
             quick_mask_active: false,
             is_dirty: false,
+            pending_notices: Vec::new(),
         }
     }
 
@@ -86,7 +94,7 @@ mod tests {
     fn test_zoom_clamping() {
         let engine = Engine::new();
         let mut app = PhotocraftApp::new(engine);
-        
+
         app.set_zoom(2.5);
         assert_eq!(app.zoom_level, 2.5);
 

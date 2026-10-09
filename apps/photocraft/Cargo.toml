@@ -9,6 +9,24 @@ description = "Photocraft: an open-source, sovereign raster graphics editor powe
 [dependencies]
 photocraft-engine = { path = "../../crates/engine" }
 photocraft-ui-martensite = { path = "../../crates/ui-martensite" }
+# Control-channel security (token handshake, bounded reads, workspace roots) and
+# PNG decode for the window icon.
+photocraft-automation = { path = "../../crates/automation" }
+photocraft-codecs = { path = "../../crates/codecs" }
+# Codec-level document import/export helpers and the crash-safe file write.
+photocraft-color = { path = "../../crates/color" }
+photocraft-doc = { path = "../../crates/doc" }
+photocraft-geom = { path = "../../crates/geom" }
+photocraft-compose = { path = "../../crates/compose" }
+photocraft-format = { path = "../../crates/format" }
+# The GPU backend plan (crash-safe startup) is expressed in wgpu types.
+martensite = "0.21"
+winit = "0.31.0-beta.3"
+pollster = "1.0"
+# Reads the saved window layout file to drop values that would abort startup.
+ron = "0.12"
+serde_json.workspace = true
+log.workspace = true
 tracing.workspace = true
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 

@@ -10,12 +10,7 @@ pub struct SplitSliderRange {
 
 impl SplitSliderRange {
     pub const fn default_full() -> Self {
-        Self {
-            min_start: 0,
-            min_end: 0,
-            max_start: 255,
-            max_end: 255,
-        }
+        Self { min_start: 0, min_end: 0, max_start: 255, max_end: 255 }
     }
 
     pub fn is_split_min(&self) -> bool {
@@ -49,15 +44,18 @@ pub struct TonalBlendingWidget {
 
 impl TonalBlendingWidget {
     pub fn new() -> Self {
-        Self {
-            this_layer: SplitSliderRange::default_full(),
-            underlying_layer: SplitSliderRange::default_full(),
-        }
+        Self { this_layer: SplitSliderRange::default_full(), underlying_layer: SplitSliderRange::default_full() }
     }
 
     pub fn reset(&mut self) {
         self.this_layer = SplitSliderRange::default_full();
         self.underlying_layer = SplitSliderRange::default_full();
+    }
+}
+
+impl Default for TonalBlendingWidget {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

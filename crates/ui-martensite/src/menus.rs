@@ -13,23 +13,11 @@ pub struct MenuItemDef {
 
 impl MenuItemDef {
     pub fn action(label: impl Into<String>, command_id: &'static str, shortcut: Option<&str>) -> Self {
-        Self {
-            label: label.into(),
-            command_id: Some(command_id),
-            shortcut: shortcut.map(|s| s.to_string()),
-            is_separator: false,
-            children: Vec::new(),
-        }
+        Self { label: label.into(), command_id: Some(command_id), shortcut: shortcut.map(|s| s.to_string()), is_separator: false, children: Vec::new() }
     }
 
     pub fn separator() -> Self {
-        Self {
-            label: String::new(),
-            command_id: None,
-            shortcut: None,
-            is_separator: true,
-            children: Vec::new(),
-        }
+        Self { label: String::new(), command_id: None, shortcut: None, is_separator: true, children: Vec::new() }
     }
 }
 
@@ -41,44 +29,17 @@ pub struct MenuCategoryDef {
 
 pub fn generate_main_menu() -> Vec<MenuCategoryDef> {
     vec![
-        MenuCategoryDef {
-            category: CommandCategory::File,
-            title: "File",
-            items: build_category_items(CommandCategory::File),
-        },
-        MenuCategoryDef {
-            category: CommandCategory::Edit,
-            title: "Edit",
-            items: build_category_items(CommandCategory::Edit),
-        },
-        MenuCategoryDef {
-            category: CommandCategory::Document,
-            title: "Document",
-            items: build_category_items(CommandCategory::Document),
-        },
-        MenuCategoryDef {
-            category: CommandCategory::Layers,
-            title: "Layers",
-            items: build_category_items(CommandCategory::Layers),
-        },
-        MenuCategoryDef {
-            category: CommandCategory::Selection,
-            title: "Selection",
-            items: build_category_items(CommandCategory::Selection),
-        },
-        MenuCategoryDef {
-            category: CommandCategory::View,
-            title: "View",
-            items: build_category_items(CommandCategory::View),
-        },
+        MenuCategoryDef { category: CommandCategory::File, title: "File", items: build_category_items(CommandCategory::File) },
+        MenuCategoryDef { category: CommandCategory::Edit, title: "Edit", items: build_category_items(CommandCategory::Edit) },
+        MenuCategoryDef { category: CommandCategory::Document, title: "Document", items: build_category_items(CommandCategory::Document) },
+        MenuCategoryDef { category: CommandCategory::Layers, title: "Layers", items: build_category_items(CommandCategory::Layers) },
+        MenuCategoryDef { category: CommandCategory::Selection, title: "Selection", items: build_category_items(CommandCategory::Selection) },
+        MenuCategoryDef { category: CommandCategory::View, title: "View", items: build_category_items(CommandCategory::View) },
     ]
 }
 
 fn build_category_items(cat: CommandCategory) -> Vec<MenuItemDef> {
-    commands_by_category(cat)
-        .into_iter()
-        .map(|cmd| MenuItemDef::action(cmd.label, cmd.id, cmd.default_shortcut))
-        .collect()
+    commands_by_category(cat).into_iter().map(|cmd| MenuItemDef::action(cmd.label, cmd.id, cmd.default_shortcut)).collect()
 }
 
 #[cfg(test)]

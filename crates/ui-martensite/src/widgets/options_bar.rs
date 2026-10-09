@@ -1,7 +1,7 @@
 //! Options bar widget adapting dynamically to the active tool.
 
-use photocraft_engine::Tool;
 use crate::widgets::scrubby_input::ScrubbyInputWidget;
+use photocraft_engine::Tool;
 
 pub struct OptionsBarWidget {
     pub active_tool: Tool,
@@ -40,6 +40,12 @@ impl OptionsBarWidget {
     pub fn toggle_pressure_opacity(&mut self) -> bool {
         self.pressure_opacity = !self.pressure_opacity;
         self.pressure_opacity
+    }
+}
+
+impl Default for OptionsBarWidget {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

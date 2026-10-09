@@ -15,17 +15,7 @@ pub struct ScrubbyInputWidget {
 
 impl ScrubbyInputWidget {
     pub fn new(label: &'static str, initial: f32, min: f32, max: f32, unit: &'static str) -> Self {
-        Self {
-            label,
-            value: initial.clamp(min, max),
-            min,
-            max,
-            unit,
-            step: 1.0,
-            is_dragging: false,
-            start_x: 0.0,
-            start_val: initial,
-        }
+        Self { label, value: initial.clamp(min, max), min, max, unit, step: 1.0, is_dragging: false, start_x: 0.0, start_val: initial }
     }
 
     pub fn on_pointer_down(&mut self, x: f32) {

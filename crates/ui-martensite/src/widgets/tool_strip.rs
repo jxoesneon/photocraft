@@ -62,6 +62,12 @@ impl ToolStripWidget {
     }
 }
 
+impl Default for ToolStripWidget {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

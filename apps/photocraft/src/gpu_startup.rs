@@ -23,7 +23,7 @@ use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, PoisonError};
 
-use eframe::{egui_wgpu, wgpu};
+use martensite::wgpu::{GpuContext, wgpu};
 use photocraft_engine::prefs::{GpuBackend, RenderingMode};
 use serde_json::{Value, json};
 
@@ -253,61 +253,108 @@ pub fn intel_dx12_applied(adapters: &[Candidate], chosen: usize, os: Os) -> bool
         && adapters.iter().any(|a| a.vendor == INTEL && a.backend == wgpu::Backend::Vulkan)
 }
 
-/// Configure eframe's wgpu setup for `plan`: instance backends, the DX12 shader compiler, adapter
-/// selection (Intel on Windows, software adapters for `cpu`) and the marker update once the
-/// adapter is chosen. `note` receives a remark for System Info (e.g. the Intel default).
-pub fn configure(setup: &mut egui_wgpu::WgpuSetup, plan: &Plan, os: Os, sentinel: SharedSentinel, note: Arc<Mutex<Option<String>>>) {
-    if let egui_wgpu::WgpuSetup::CreateNew(create) = setup {
-        if let Some(b) = backends(plan, os) {
-            create.instance_descriptor.backends = b;
-        }
-        if os == Os::Windows {
-            let exe = std::env::current_exe().ok();
-            let env = std::env::var("WGPU_DX12_COMPILER").ok();
-            create.instance_descriptor.backend_options.dx12.shader_compiler = dx12_compiler(env.as_deref(), exe.as_deref().and_then(Path::parent));
-        }
-        let select = plan.env.is_none() && (plan.backend == GpuBackend::Cpu || (plan.backend == GpuBackend::Auto && os == Os::Windows));
-        if select {
-            let backend = plan.backend;
-            create.native_adapter_selector = Some(Arc::new(move |adapters: &[wgpu::Adapter], surface: Option<&wgpu::Surface<'_>>| {
-                let cands: Vec<Candidate> = adapters
-                    .iter()
-                    .map(|a| {
-                        let i = a.get_info();
-                        Candidate {
-                            vendor: i.vendor,
-                            device_type: i.device_type,
-                            backend: i.backend,
-                            surface_ok: surface.is_none_or(|s| a.is_surface_supported(s)),
-                        }
-                    })
-                    .collect();
-                let i = pick(&cands, backend, os).ok_or_else(|| "no graphics adapter found".to_string())?;
-                if backend == GpuBackend::Cpu && cands.get(i).is_some_and(|c| c.device_type != wgpu::DeviceType::Cpu) {
-                    *note.lock().unwrap_or_else(PoisonError::into_inner) =
-                        Some("CPU image rendering; no software graphics adapter is available, so the window uses hardware graphics".into());
-                }
-                if backend == GpuBackend::Auto && intel_dx12_applied(&cands, i, os) {
-                    *note.lock().unwrap_or_else(PoisonError::into_inner) =
-                        Some("Intel graphics on Windows: using DirectX 12 (the Intel Vulkan driver is known to crash)".into());
-                }
-                adapters.get(i).cloned().ok_or_else(|| "no graphics adapter found".to_string())
-            }));
-        }
+/// The preference name of a wgpu backend.
+fn backend_name(b: wgpu::Backend) -> &'static str {
+    match b {
+        wgpu::Backend::Vulkan => "vulkan",
+        wgpu::Backend::Dx12 => "dx12",
+        wgpu::Backend::Metal => "metal",
+        wgpu::Backend::Gl => "gl",
+        wgpu::Backend::BrowserWebGpu => "webgpu",
+        wgpu::Backend::Noop => "noop",
     }
-    photocraft_ui_egui::gpu_canvas::use_adapter_limits_with(setup, move |adapter| {
-        let info = adapter.get_info();
+}
+
+/// The wgpu instance descriptor for `plan`: Martensite's platform backends narrowed by the plan
+/// (`backends`), and on Windows the DX12 shader compiler (#712). `WGPU_BACKEND` (`plan.env`)
+/// keeps wgpu's defaults, which honour it.
+pub fn instance_descriptor(plan: &Plan, os: Os) -> wgpu::InstanceDescriptor {
+    let mut desc = GpuContext::instance_descriptor();
+    if let Some(b) = backends(plan, os) {
+        desc.backends = b;
+    }
+    if os == Os::Windows {
+        let exe = std::env::current_exe().ok();
+        let env = std::env::var("WGPU_DX12_COMPILER").ok();
+        desc.backend_options.dx12.shader_compiler = dx12_compiler(env.as_deref(), exe.as_deref().and_then(Path::parent));
+    }
+    desc
+}
+
+/// The device descriptor the Martensite runtime requests (`GpuContext::for_surface`):
+/// downlevel limits on GL, the adapter's own on Android, defaults elsewhere.
+fn device_descriptor_for(adapter: &wgpu::Adapter) -> wgpu::DeviceDescriptor<'static> {
+    let mut descriptor = wgpu::DeviceDescriptor::default();
+    match adapter.get_info().backend {
+        wgpu::Backend::Gl => descriptor.required_limits = wgpu::Limits::downlevel_defaults(),
+        _ if cfg!(target_os = "android") => descriptor.required_limits = adapter.limits(),
+        _ => {}
+    }
+    descriptor
+}
+
+/// The whole crash-safe GPU bring-up for the Martensite runner — what the eframe `WgpuSetup`
+/// hook did: a plan-shaped instance, the window's surface, adapter selection (Intel on Windows,
+/// software adapters for `cpu`), device creation, and the marker update once the adapter is
+/// chosen. `note` receives a remark for System Info (e.g. the Intel default).
+pub fn create_gpu(
+    window: Arc<dyn winit::window::Window>,
+    plan: &Plan,
+    os: Os,
+    sentinel: SharedSentinel,
+    note: Arc<Mutex<Option<String>>>,
+) -> Result<(GpuContext, wgpu::Surface<'static>), String> {
+    let desc = instance_descriptor(plan, os);
+    let backend_set = desc.backends;
+    let instance = wgpu::Instance::new(desc);
+    let surface = instance.create_surface(window).map_err(|e| format!("could not create the GPU surface: {e}"))?;
+    let select = plan.env.is_none() && (plan.backend == GpuBackend::Cpu || (plan.backend == GpuBackend::Auto && os == Os::Windows));
+    let adapter = if select {
+        let adapters = pollster::block_on(instance.enumerate_adapters(backend_set));
+        let cands: Vec<Candidate> = adapters
+            .iter()
+            .map(|a| {
+                let i = a.get_info();
+                Candidate { vendor: i.vendor, device_type: i.device_type, backend: i.backend, surface_ok: a.is_surface_supported(&surface) }
+            })
+            .collect();
+        let i = pick(&cands, plan.backend, os).ok_or_else(|| "no graphics adapter found".to_string())?;
+        if plan.backend == GpuBackend::Cpu && cands.get(i).is_some_and(|c| c.device_type != wgpu::DeviceType::Cpu) {
+            *note.lock().unwrap_or_else(PoisonError::into_inner) =
+                Some("CPU image rendering; no software graphics adapter is available, so the window uses hardware graphics".into());
+        }
+        if plan.backend == GpuBackend::Auto && intel_dx12_applied(&cands, i, os) {
+            *note.lock().unwrap_or_else(PoisonError::into_inner) =
+                Some("Intel graphics on Windows: using DirectX 12 (the Intel Vulkan driver is known to crash)".into());
+        }
+        adapters.into_iter().nth(i).ok_or_else(|| "no graphics adapter found".to_string())?
+    } else {
+        pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+            power_preference: wgpu::PowerPreference::HighPerformance,
+            compatible_surface: Some(&surface),
+            force_fallback_adapter: plan.backend == GpuBackend::Cpu,
+            apply_limit_buckets: true,
+        }))
+        .map_err(|e| format!("no usable GPU adapter: {e}"))?
+    };
+    let adapter_info = adapter.get_info();
+    let (device, queue) =
+        pollster::block_on(adapter.request_device(&device_descriptor_for(&adapter))).map_err(|e| format!("graphics device request failed: {e}"))?;
+    {
+        // Record the chosen adapter in the marker: a crash from here on names it.
         let mut guard = sentinel.lock().unwrap_or_else(PoisonError::into_inner);
         if let Some(s) = guard.as_mut() {
             let mut m = s.marker.clone();
-            m.adapter = info.name.clone();
-            m.adapter_backend = photocraft_ui_egui::gpu_canvas::backend_name(info.backend).to_string();
-            m.driver = [info.driver.as_str(), info.driver_info.as_str()].iter().filter(|s| !s.is_empty()).copied().collect::<Vec<_>>().join(" ");
+            m.adapter = adapter_info.name.clone();
+            m.adapter_backend = backend_name(adapter_info.backend).to_string();
+            m.driver =
+                [adapter_info.driver.as_str(), adapter_info.driver_info.as_str()].iter().filter(|s| !s.is_empty()).copied().collect::<Vec<_>>().join(" ");
             if let Err(e) = s.write(m) {
                 log::warn!("GPU startup marker: {e}");
             }
         }
-    });
+    }
+    Ok((GpuContext { instance: Arc::new(instance), adapter: Arc::new(adapter), device: Arc::new(device), queue: Arc::new(queue), adapter_info }, surface))
 }
 
 /// What a previous start left behind.
@@ -340,6 +387,13 @@ pub struct Sentinel {
 
 /// The sentinel, shared with eframe's adapter hook and the app's started hook.
 pub type SharedSentinel = Arc<Mutex<Option<Sentinel>>>;
+
+/// Only renderer errors should affect the next launch's graphics backend. Windowing errors
+/// (such as a missing Linux display) and app setup errors never indicate a driver failure: the
+/// runner reports those with `gpu_init == false`.
+pub fn keep_marker_after_run(gpu_init_failed: bool) -> bool {
+    gpu_init_failed
+}
 
 impl Sentinel {
     /// Open (creating) the marker in `dir` and lock it. Returns what a previous start left and,
@@ -600,6 +654,31 @@ mod tests {
     }
 
     #[test]
+    fn returned_non_graphics_errors_do_not_trigger_backend_recovery() {
+        // The runner flags GPU/wgpu init failures (`gpu_init == true`); windowing and app
+        // errors and a clean exit clear the marker.
+        let cases = [("success", false, false), ("app-error", false, false), ("gpu-error", true, true)];
+        for (name, gpu_init, keep) in cases {
+            let dir = temp_dir(name);
+            let (_, s) = Sentinel::begin(&dir);
+            let mut s = s.expect("sentinel");
+            s.write(Marker { backend: "vulkan".into(), ..Default::default() }).unwrap();
+            if keep_marker_after_run(gpu_init) {
+                drop(s);
+            } else {
+                s.finish();
+            }
+            let (previous, s) = Sentinel::begin(&dir);
+            assert_eq!(previous.crashed().is_some(), keep, "{name}");
+            if !keep {
+                assert_eq!(plan(Vulkan, previous.crashed(), None, false, Os::Other).backend, Vulkan);
+            }
+            s.expect("sentinel").finish();
+            let _ = std::fs::remove_dir_all(&dir);
+        }
+    }
+
+    #[test]
     fn unwritable_config_dir_is_not_fatal() {
         let dir = temp_dir("file");
         std::fs::create_dir_all(dir.parent().unwrap()).unwrap();
@@ -645,18 +724,16 @@ mod tests {
         assert!(matches!(dx12_compiler(Some("quantum"), None), C::Fxc));
         let _ = std::fs::remove_dir_all(&dir);
 
-        // The app's setup replaces wgpu's default (`Auto`: DXC by name from the search path).
-        let mut setup = egui_wgpu::WgpuSetup::without_display_handle();
+        // The app's descriptor replaces wgpu's default (`Auto`: DXC by name from the search path).
         let plan = plan(Auto, None, None, false, Os::Windows);
-        configure(&mut setup, &plan, Os::Windows, Arc::new(Mutex::new(None)), Arc::default());
-        let egui_wgpu::WgpuSetup::CreateNew(create) = &setup else { panic!("a new instance") };
+        let desc = instance_descriptor(&plan, Os::Windows);
         if std::env::var_os("WGPU_DX12_COMPILER").is_none() {
-            let safe = match &create.instance_descriptor.backend_options.dx12.shader_compiler {
+            let safe = match &desc.backend_options.dx12.shader_compiler {
                 C::Fxc => true,
                 C::DynamicDxc { dxc_path } => Path::new(dxc_path).is_absolute(),
                 C::StaticDxc | C::Auto => false,
             };
-            assert!(safe, "{:?}", create.instance_descriptor.backend_options.dx12.shader_compiler);
+            assert!(safe, "{:?}", desc.backend_options.dx12.shader_compiler);
         }
     }
 }

@@ -17,6 +17,10 @@ pub fn install_hook() {
 }
 
 /// Run `f`; a panic inside it becomes an `Err` naming `what`.
+///
+/// Not used by the bin itself today: file import/export is guarded inside the command executor
+/// (`photocraft_ui_martensite::commands`), and `Session::execute` guards commands internally.
+#[allow(dead_code)]
 pub fn guard<T>(what: &str, f: impl FnOnce() -> Result<T, String>) -> Result<T, String> {
     catch_unwind(AssertUnwindSafe(f)).unwrap_or_else(|_| Err(format!("{what} failed with an internal error (logged); your open documents are unchanged")))
 }

@@ -10,13 +10,7 @@ pub struct CanvasViewWidget {
 
 impl CanvasViewWidget {
     pub fn new(width: u32, height: u32) -> Self {
-        Self {
-            zoom: 1.0,
-            pan_offset: [0.0, 0.0],
-            canvas_size: [width, height],
-            rulers_visible: true,
-            selection_phase: 0.0,
-        }
+        Self { zoom: 1.0, pan_offset: [0.0, 0.0], canvas_size: [width, height], rulers_visible: true, selection_phase: 0.0 }
     }
 
     pub fn zoom_at(&mut self, factor: f32, cursor: [f32; 2]) {
@@ -34,10 +28,7 @@ impl CanvasViewWidget {
     }
 
     pub fn screen_to_canvas(&self, screen: [f32; 2]) -> [f32; 2] {
-        [
-            (screen[0] - self.pan_offset[0]) / self.zoom,
-            (screen[1] - self.pan_offset[1]) / self.zoom,
-        ]
+        [(screen[0] - self.pan_offset[0]) / self.zoom, (screen[1] - self.pan_offset[1]) / self.zoom]
     }
 }
 

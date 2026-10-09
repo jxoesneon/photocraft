@@ -24,13 +24,7 @@ pub struct LayerTreeWidget {
 
 impl LayerTreeWidget {
     pub fn new() -> Self {
-        Self {
-            layers: Vec::new(),
-            selected_layer_id: None,
-            opacity: 100.0,
-            fill: 100.0,
-            blend_mode: "Normal".to_string(),
-        }
+        Self { layers: Vec::new(), selected_layer_id: None, opacity: 100.0, fill: 100.0, blend_mode: "Normal".to_string() }
     }
 
     pub fn select_layer(&mut self, id: u64) {
@@ -47,6 +41,12 @@ impl LayerTreeWidget {
         if let Some(item) = find_layer_mut(&mut self.layers, id) {
             item.locked = !item.locked;
         }
+    }
+}
+
+impl Default for LayerTreeWidget {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

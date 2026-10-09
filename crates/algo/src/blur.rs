@@ -5,7 +5,7 @@ use photocraft_raster::Interrupt;
 
 use crate::image::{Edge, Image, premultiply, unpremultiply};
 use crate::photo_util::{par_map, par_rows};
-use crate::{Ctx, FilterParams, RadialMethod};
+use crate::{Ctx, FilterParams, RadialMethod, RadialQuality};
 
 /// Normalized Gaussian kernel with standard deviation `sigma` (radius 3σ).
 pub(crate) fn gaussian_kernel(sigma: f32) -> Vec<f32> {
@@ -310,13 +310,17 @@ pub(crate) fn boxed(src: &Image, out: Rect, ctx: &Ctx, radius: f32) -> Vec<f32> 
     }
 }
 
-fn average_samples(src: &Image, out: Rect, ctx: &Ctx, mut offsets: impl FnMut(f32, f32, &mut Vec<(f32, f32)>)) -> Vec<f32> {
+fn average_samples(src: &Image, out: Rect, ctx: &Ctx, offsets: impl Fn(f32, f32, &mut Vec<(f32, f32)>) + Sync) -> Vec<f32> {
     let n = src.ch;
-    let mut res = Vec::with_capacity(out.width() as usize * out.height() as usize * n);
-    let mut pts = Vec::new();
-    let mut tmp = vec![0.0f32; n];
-    let mut acc = vec![0.0f32; n];
-    for y in out.y0..out.y1 {
+    let (ow, oh) = (out.width() as usize, out.height() as usize);
+    let mut res = vec![0.0; ow * oh * n];
+    if ow == 0 || oh == 0 || n == 0 {
+        return res;
+    }
+    let process_row = |y: i32, row: &mut [f32]| {
+        let mut pts = Vec::new();
+        let mut tmp = vec![0.0f32; n];
+        let mut acc = vec![0.0f32; n];
         for x in out.x0..out.x1 {
             let (cx, cy) = (x as f32 + 0.5, y as f32 + 0.5);
             pts.clear();
@@ -333,37 +337,123 @@ fn average_samples(src: &Image, out: Rect, ctx: &Ctx, mut offsets: impl FnMut(f3
                 }
             }
             let k = 1.0 / pts.len().max(1) as f32;
-            for a in acc.iter_mut() {
-                *a *= k;
+            for (dst, value) in row[(x - out.x0) as usize * n..][..n].iter_mut().zip(&acc) {
+                *dst = *value * k;
             }
             if ctx.alpha {
-                let a = acc[n - 1];
-                for v in acc.iter_mut().take(n - 1) {
+                let alpha = acc[n - 1] * k;
+                let dst = &mut row[(x - out.x0) as usize * n..][..n];
+                for value in dst.iter_mut().take(n - 1) {
+                    *value = if alpha > 1e-7 { *value / alpha } else { 0.0 };
+                }
+            }
+        }
+    };
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        use rayon::prelude::*;
+        res.par_chunks_mut(ow * n).enumerate().for_each(|(row, data)| process_row(out.y0 + row as i32, data));
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        res.chunks_mut(ow * n).enumerate().for_each(|(row, data)| process_row(out.y0 + row as i32, data));
+    }
+    res
+}
+
+/// Sample offsets of a motion blur of `distance` at `angle`, relative to the pixel centre.
+fn motion_offsets(angle: f32, distance: f32) -> Vec<(f32, f32)> {
+    let d = distance.abs();
+    let (s, c) = angle.to_radians().sin_cos();
+    let steps = d.ceil() as i32;
+    (0..=steps)
+        .map(|i| {
+            let t = i as f32 / steps as f32 - 0.5;
+            (c * d * t, -s * d * t)
+        })
+        .collect()
+}
+
+/// Motion blur: the mean of bilinear samples along a line centred on the pixel. The offsets are the
+/// same for every pixel, so their bilinear taps are merged once into a fixed kernel, which is
+/// applied tap by tap to whole rows of a premultiplied window (the same premultiplied mean the
+/// per-sample loop takes, summed in another order).
+pub(crate) fn motion(src: &Image, out: Rect, ctx: &Ctx, angle: f32, distance: f32) -> Vec<f32> {
+    if distance.abs() < 0.5 {
+        return src.crop(out);
+    }
+    let offs = motion_offsets(angle, distance);
+    let k = 1.0 / offs.len() as f32;
+    // Merged taps (dx, dy, weight), in the order first seen.
+    let mut taps: Vec<(i32, i32, f32)> = Vec::new();
+    let mut slot = std::collections::HashMap::new();
+    for &(ox, oy) in &offs {
+        let (x0, y0) = (ox.floor(), oy.floor());
+        let (ax, ay) = (ox - x0, oy - y0);
+        let (x0, y0) = (x0 as i32, y0 as i32);
+        for (dx, dy, w) in [(0, 0, (1.0 - ax) * (1.0 - ay)), (1, 0, ax * (1.0 - ay)), (0, 1, (1.0 - ax) * ay), (1, 1, ax * ay)] {
+            if w <= 0.0 {
+                continue;
+            }
+            let i = *slot.entry((x0 + dx, y0 + dy)).or_insert_with(|| {
+                taps.push((x0 + dx, y0 + dy, 0.0));
+                taps.len() - 1
+            });
+            taps[i].2 += w * k;
+        }
+    }
+    let reach = taps.iter().map(|t| t.0.abs().max(t.1.abs())).max().unwrap_or(0);
+    let n = src.ch;
+    let win = out.inflate(reach);
+    let ww = win.width() as usize;
+    // Premultiplied window; outside the source reads as transparent, as the sampler does.
+    let mut pw = vec![0.0f32; ww * win.height() as usize * n];
+    for y in win.y0..win.y1 {
+        for x in win.x0..win.x1 {
+            let i = ((y - win.y0) as usize * ww + (x - win.x0) as usize) * n;
+            let a = if ctx.alpha { src.get(x, y, n - 1) } else { 1.0 };
+            for c in 0..n {
+                let v = src.get(x, y, c);
+                pw[i + c] = if ctx.alpha && c < n - 1 { v * a } else { v };
+            }
+        }
+    }
+    let (ow, oh) = (out.width() as usize, out.height() as usize);
+    let mut res = vec![0.0f32; ow * oh * n];
+    let r = reach as usize;
+    for (oy, row) in res.chunks_exact_mut(ow * n).enumerate() {
+        for &(dx, dy, w) in &taps {
+            let start = ((oy + r).wrapping_add_signed(dy as isize) * ww + r.wrapping_add_signed(dx as isize)) * n;
+            for (o, v) in row.iter_mut().zip(&pw[start..start + ow * n]) {
+                *o += w * v;
+            }
+        }
+        if ctx.alpha {
+            for px in row.chunks_exact_mut(n) {
+                let a = px[n - 1];
+                for v in px.iter_mut().take(n - 1) {
                     *v = if a > 1e-7 { *v / a } else { 0.0 };
                 }
             }
-            res.extend_from_slice(&acc);
         }
     }
     res
 }
 
-pub(crate) fn motion(src: &Image, out: Rect, ctx: &Ctx, angle: f32, distance: f32) -> Vec<f32> {
-    let d = distance.abs();
-    if d < 0.5 {
-        return src.crop(out);
+fn radial_intervals(path_length: f32, quality: RadialQuality) -> usize {
+    let max = match quality {
+        RadialQuality::Draft => 64,
+        RadialQuality::Good => 256,
+        RadialQuality::Best => 4096,
+    };
+
+    if path_length.is_nan() {
+        return 1;
     }
-    let (s, c) = angle.to_radians().sin_cos();
-    let steps = d.ceil() as i32;
-    average_samples(src, out, ctx, |x, y, pts| {
-        for i in 0..=steps {
-            let t = i as f32 / steps as f32 - 0.5;
-            pts.push((x + c * d * t, y - s * d * t));
-        }
-    })
+    path_length.ceil().clamp(1.0, max as f32) as usize
 }
 
-pub(crate) fn radial(src: &Image, out: Rect, ctx: &Ctx, amount: f32, method: RadialMethod, center: (f32, f32)) -> Vec<f32> {
+pub(crate) fn radial(src: &Image, out: Rect, ctx: &Ctx, amount: f32, method: RadialMethod, quality: RadialQuality, center: (f32, f32)) -> Vec<f32> {
     let b = ctx.bounds;
     let (cx, cy) = (b.x0 as f32 + b.width() as f32 * center.0, b.y0 as f32 + b.height() as f32 * center.1);
     let amount = amount.clamp(0.0, 100.0);
@@ -374,7 +464,7 @@ pub(crate) fn radial(src: &Image, out: Rect, ctx: &Ctx, amount: f32, method: Rad
             RadialMethod::Spin => {
                 // Arc of `amount` degrees centred on the pixel.
                 let arc = amount.to_radians();
-                let n = ((arc * r).ceil() as i32).clamp(1, 64);
+                let n = radial_intervals(arc * r, quality);
                 for i in 0..=n {
                     let t = (i as f32 / n as f32 - 0.5) * arc;
                     let (s, c) = t.sin_cos();
@@ -384,7 +474,7 @@ pub(crate) fn radial(src: &Image, out: Rect, ctx: &Ctx, amount: f32, method: Rad
             RadialMethod::Zoom => {
                 // Samples along the ray, up to amount/2 % closer to the centre.
                 let span = amount / 200.0;
-                let n = ((span * r).ceil() as i32).clamp(1, 64);
+                let n = radial_intervals(span * r, quality);
                 for i in 0..=n {
                     let k = 1.0 - span * i as f32 / n as f32;
                     pts.push((cx + dx * k, cy + dy * k));
@@ -522,6 +612,53 @@ mod tests {
     use super::*;
     use photocraft_color::{ColorMode, PixelFormat, SampleType};
     use photocraft_raster::Surface;
+
+    #[test]
+    fn radial_blur_samples_large_arcs_beyond_64_intervals() {
+        let bounds = Rect::new(0, 0, 1000, 1000);
+        let out = Rect::new(999, 500, 1000, 501);
+        let ctx = Ctx { bounds, mode: photocraft_color::ColorMode::Grayscale, alpha: false };
+        let mut img = Image::new(bounds, 1);
+        let (cx, cy) = (500.0f32, 500.0f32);
+        let (x, y) = (999.5f32, 500.5f32);
+        let (dx, dy) = (x - cx, y - cy);
+        let arc = 100.0f32.to_radians();
+        let count = radial_intervals(arc * dx.hypot(dy), RadialQuality::Good);
+        assert_eq!(count, 256);
+        assert_eq!(radial_intervals(f32::INFINITY, RadialQuality::Draft), 64);
+        assert_eq!(radial_intervals(f32::INFINITY, RadialQuality::Good), 256);
+        assert_eq!(radial_intervals(f32::INFINITY, RadialQuality::Best), 4096);
+        assert_eq!(radial_intervals(f32::NAN, RadialQuality::Best), 1);
+
+        // Put a small bright patch halfway between two samples from the former 64-interval
+        // limit. Dense sampling should pick it up; the coarse path misses it entirely.
+        let sparse_midpoint = (31.5 / 64.0 - 0.5) * arc;
+        let (s, c) = sparse_midpoint.sin_cos();
+        let px = (cx + dx * c - dy * s - 0.5).round() as i32;
+        let py = (cy + dx * s + dy * c - 0.5).round() as i32;
+        for yy in py - 1..=py + 1 {
+            for xx in px - 1..=px + 1 {
+                let index = (yy - bounds.y0) as usize * bounds.width() as usize + (xx - bounds.x0) as usize;
+                img.data[index] = 1.0;
+            }
+        }
+
+        let sample_path = |x: f32, y: f32, pts: &mut Vec<(f32, f32)>, intervals: usize| {
+            let (dx, dy) = (x - cx, y - cy);
+            for i in 0..=intervals {
+                let t = (i as f32 / intervals as f32 - 0.5) * arc;
+                let (s, c) = t.sin_cos();
+                pts.push((cx + dx * c - dy * s, cy + dx * s + dy * c));
+            }
+        };
+        let actual = radial(&img, out, &ctx, 100.0, RadialMethod::Spin, RadialQuality::Good, (0.5, 0.5))[0];
+        let expected = average_samples(&img, out, &ctx, |x, y, pts| sample_path(x, y, pts, 8192))[0];
+        let coarse = average_samples(&img, out, &ctx, |x, y, pts| sample_path(x, y, pts, 64))[0];
+
+        assert!(actual > 0.001, "dense radial samples should resolve the bright patch, got {actual}");
+        assert!((actual - expected).abs() < 0.0015, "radial result {actual} differs from dense reference {expected}");
+        assert!(coarse < expected * 0.1, "former 64-interval sampling unexpectedly resolved the patch: {coarse} vs {expected}");
+    }
 
     #[test]
     fn box_gaussian_matches_exact_kernel() {
@@ -701,5 +838,35 @@ mod tests {
         let i = (14 * src_rect.width() as usize + 14) * 4;
         img.data[i] = 0.5 / 255.0;
         assert!(surface_8bit(&img, out, &ctx, 4, 0.1, 26).is_none());
+    }
+
+    #[test]
+    fn motion_kernel_matches_the_per_pixel_samples() {
+        // Noisy RGBA with some transparent pixels; the output reaches the source edge.
+        let src_rect = Rect::new(-30, -30, 50, 40);
+        let mut img = Image::new(src_rect, 4);
+        let mut s = 0x1b87_3593u32;
+        for px in img.data.as_chunks_mut::<4>().0 {
+            for v in px.iter_mut() {
+                s ^= s << 13;
+                s ^= s >> 17;
+                s ^= s << 5;
+                *v = (s % 1000) as f32 / 999.0;
+            }
+            if s.is_multiple_of(5) {
+                px[3] = 0.0;
+            }
+        }
+        let out = Rect::new(-12, -6, 30, 22);
+        for alpha in [true, false] {
+            let ctx = Ctx { bounds: src_rect, mode: crate::ColorMode::Rgb, alpha };
+            for (angle, distance) in [(0.0, 1.0), (0.0, 9.0), (30.0, 7.0), (90.0, 12.0), (-45.0, 20.0), (137.0, 33.5), (200.0, 40.0)] {
+                let fast = motion(&img, out, &ctx, angle, distance);
+                let offs = motion_offsets(angle, distance);
+                let slow = average_samples(&img, out, &ctx, |x, y, pts| pts.extend(offs.iter().map(|&(dx, dy)| (x + dx, y + dy))));
+                let err = slow.iter().zip(&fast).map(|(a, b)| (a - b).abs()).fold(0.0f32, f32::max);
+                assert!(err < 1e-5, "alpha {alpha} angle {angle} distance {distance}: max error {err}");
+            }
+        }
     }
 }

@@ -2,26 +2,37 @@
 //!
 //! - **Executable:** `build.rs` embeds `assets/app-icon/photocraft.ico` (16–256 px) as icon
 //!   resource 1, which Explorer, Alt+Tab and an unpinned taskbar button fall back to.
-//! - **Window:** [`window_icon`] sets the title-bar and taskbar icon at runtime (`WM_SETICON` on
-//!   Windows, `_NET_WM_ICON` on X11, the Dock when running unbundled on macOS).
+//! - **Window:** [`window_icon`] decodes the PNG for the windowing layer to set the title-bar and
+//!   taskbar icon at runtime (`WM_SETICON` on Windows, `_NET_WM_ICON` on X11, the Dock when
+//!   running unbundled on macOS).
 //! - **Start Menu shortcut (MSI):** the taskbar matches a running window to the shortcut that
 //!   launches its executable and shows that shortcut's icon. Windows Installer caches an advertised
 //!   shortcut's icon under its `<Icon Id>`, so that id must carry the target's `.exe` extension
 //!   (ICE50); an extensionless id showed a blank page on the taskbar. The tests below check it.
-//!
-//! The process keeps Windows' implicit AppUserModelID (derived from the executable path), which
-//! is what makes that matching work for both the MSI shortcut and the portable exe. An explicit
-//! ID would need a Win32 call (`unsafe`, which the workspace forbids) and would then also have to
-//! be stamped on the shortcut, or the taskbar would stop matching the two.
+//! - The process keeps Windows' implicit AppUserModelID (derived from the executable path), which
+//!   is what makes that matching work for both the MSI shortcut and the portable exe. An explicit
+//!   ID would need a Win32 call (`unsafe`, which the workspace forbids) and would then also have to
+//!   be stamped on the shortcut, or the taskbar would stop matching it.
+
+/// A decoded window icon: tightly packed RGBA8, `width` × `height` pixels.
+///
+/// Field names match the shape the previous egui runner consumed; the Martensite window feeds
+/// the bytes to `winit::window::Icon::from_rgba`.
+pub struct WindowIcon {
+    pub width: u32,
+    pub height: u32,
+    pub rgba: Vec<u8>,
+}
 
 /// Window, taskbar and (when running unbundled) Dock icon. macOS gets the padded 1024 px render
 /// on Apple's icon grid; elsewhere the tighter 256 px hicolor render reads better at small sizes.
-pub fn window_icon() -> egui::IconData {
-    match eframe::icon_data::from_png_bytes(PNG) {
-        Ok(icon) => icon,
+/// `None` when the bundled PNG cannot be decoded — the window then shows the OS default.
+pub fn window_icon() -> Option<WindowIcon> {
+    match photocraft_codecs::decode(PNG) {
+        Ok(image) => Some(WindowIcon { width: image.width(), height: image.height(), rgba: image.to_rgba8() }),
         Err(e) => {
             log::warn!("app icon: {e}");
-            egui::IconData::default()
+            None
         }
     }
 }
@@ -47,7 +58,7 @@ mod tests {
 
     #[test]
     fn window_icon_decodes() {
-        let icon = window_icon();
+        let icon = window_icon().expect("bundled icon decodes");
         assert!(icon.width >= 256 && icon.width == icon.height, "{}x{}", icon.width, icon.height);
         assert_eq!(icon.rgba.len(), icon.width as usize * icon.height as usize * 4);
         assert!(icon.rgba.chunks(4).any(|p| p[3] > 0), "the icon isn't blank");

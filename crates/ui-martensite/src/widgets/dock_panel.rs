@@ -10,12 +10,7 @@ pub struct DockPanelGroup {
 
 impl DockPanelGroup {
     pub fn new(tabs: &[&str]) -> Self {
-        Self {
-            tabs: tabs.iter().map(|s| s.to_string()).collect(),
-            active_tab: 0,
-            collapsed_to_icons: false,
-            width: 280.0,
-        }
+        Self { tabs: tabs.iter().map(|s| s.to_string()).collect(), active_tab: 0, collapsed_to_icons: false, width: 280.0 }
     }
 
     pub fn select_tab(&mut self, idx: usize) {

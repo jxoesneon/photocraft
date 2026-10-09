@@ -9,9 +9,7 @@ use photocraft_ui_martensite::{
     command_reg::find_command,
     menus::generate_main_menu,
     theme::CraftTheme,
-    widgets::{
-        DockPanelGroup, LayerItemDef, LayerTreeWidget, OptionsBarWidget, TonalBlendingWidget,
-    },
+    widgets::{DockPanelGroup, LayerItemDef, LayerTreeWidget, OptionsBarWidget, TonalBlendingWidget},
 };
 
 #[test]
