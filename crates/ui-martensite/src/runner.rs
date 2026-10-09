@@ -496,6 +496,9 @@ impl ApplicationHandler for Runner {
 /// [`LaunchError`] on window/GPU bring-up failures (with `gpu_init` set for the
 /// GPU sentinel) and on event-loop failures.
 pub fn run(cfg: RunnerConfig) -> Result<(), LaunchError> {
+    // The PhotoCraft icon overlay is the ambient family for the UI thread —
+    // install before the event loop starts and keep it for the app's life.
+    std::mem::forget(martensite::icons::install_ambient_icons(crate::icons::ambient_set()));
     let event_loop = EventLoop::new().map_err(|e| LaunchError { message: e.to_string(), gpu_init: false })?;
     event_loop.set_control_flow(ControlFlow::Poll);
     let runner = Runner::new(cfg);

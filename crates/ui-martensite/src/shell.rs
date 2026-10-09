@@ -4,7 +4,9 @@
 //! [`crate::shortcuts`].
 
 use glam::Vec2;
-use martensite::core::{EventContext, EventResponse, HotNode, LayoutConstraints, LayoutContext, PaintContext, Rect, TokenKey, Widget, WidgetEvent};
+use martensite::core::{
+    DropPayload, EventContext, EventResponse, HotNode, LayoutConstraints, LayoutContext, PaintContext, Rect, TokenKey, Widget, WidgetEvent,
+};
 use martensite::widgets::menu::MenuItem;
 use martensite::widgets::menu_bar::MenuBar;
 use martensite::widgets::status_bar::StatusBar;
@@ -43,7 +45,22 @@ const TOOLS: &[Tool] = &[
     Tool::Zoom,
 ];
 
-const TOOL_GLYPHS: &[&str] = &["V", "M", "L", "W", "C", "B", "E", "G", "T", "P", "H", "Z"];
+/// Palette glyphs are namespaced icon names resolved through the ambient
+/// icon family (`crate::icons` overlay over the builtin pack).
+const TOOL_GLYPHS: &[&str] = &[
+    "arrow.move",      // Move
+    "photo.marquee",   // Marquee
+    "photo.lasso",     // Lasso
+    "edit.wand",       // Quick Selection
+    "edit.crop",       // Crop
+    "edit.paintbrush", // Brush
+    "edit.eraser",     // Eraser
+    "photo.gradient",  // Gradient
+    "misc.type",       // Type
+    "edit.pen",        // Pen
+    "edit.grab",       // Hand
+    "nav.search",      // Zoom
+];
 const TOOL_NAMES: &[&str] = &["Move", "Marquee", "Lasso", "Quick Selection", "Crop", "Brush", "Eraser", "Gradient", "Type", "Pen", "Hand", "Zoom"];
 
 fn tool_index(tool: Tool) -> usize {
@@ -465,6 +482,25 @@ impl PhotoCraftShell {
         }
         EventResponse::Ignored
     }
+
+    /// Drop-to-open: the first file (or `file://` URI) in the payload
+    /// imports as a document through the same executor path the control
+    /// channel uses.
+    fn on_drop(&mut self, payload: &DropPayload) -> EventResponse {
+        let path = match payload {
+            DropPayload::Files(paths) => paths.first().cloned(),
+            DropPayload::Uris(uris) => uris.first().and_then(|u| u.strip_prefix("file://").map(std::path::PathBuf::from)),
+            _ => None,
+        };
+        let Some(path) = path else { return EventResponse::Ignored };
+        let engine = self.app.engine.clone();
+        let mut guard = engine.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        match self.executor.open_document(&mut guard, &path) {
+            Ok(title) => self.pending_status = Some(format!("Opened {title}")),
+            Err(e) => self.pending_status = Some(format!("Open failed: {e}")),
+        }
+        EventResponse::RequestRepaint
+    }
 }
 
 impl Widget for PhotoCraftShell {
@@ -561,6 +597,7 @@ impl Widget for PhotoCraftShell {
         match cx.event {
             WidgetEvent::KeyPressed { key, repeat } if !*repeat => self.on_key(key, true),
             WidgetEvent::KeyReleased { key } => self.on_key(key, false),
+            WidgetEvent::Dropped { payload, .. } => self.on_drop(payload),
             _ => EventResponse::Ignored,
         }
     }
@@ -703,5 +740,35 @@ mod tests {
         assert!(!commands.is_empty());
         let file = &commands[0];
         assert!(file.iter().any(|c| matches!(c, MenuCmd::Cmd("file.new"))));
+    }
+
+    /// Every row in every menu must resolve to a command id the engine
+    /// actually registers — a MenuBar path is `[menu, item, sub…]`.
+    #[test]
+    fn every_menu_row_resolves_to_a_registered_command() {
+        let engine = Engine::new();
+        let specs: std::collections::HashSet<&str> = photocraft_engine::command_specs().iter().map(|s| s.id).collect();
+        let (_bar, commands) = build_menubar(&engine);
+        let mut leaf_rows = 0usize;
+        for (m, slots) in commands.iter().enumerate() {
+            for (i, slot) in slots.iter().enumerate() {
+                match slot {
+                    MenuCmd::Cmd(id) => {
+                        leaf_rows += 1;
+                        assert_eq!(slot.get(&[]), Some(*id), "menu {m} item {i} resolves");
+                        assert!(specs.contains(id), "menu {m} item {i}: {id} registered");
+                    }
+                    MenuCmd::Sub(ids) => {
+                        assert!(!ids.is_empty(), "menu {m} item {i}: empty submenu");
+                        for (j, id) in ids.iter().enumerate() {
+                            leaf_rows += 1;
+                            assert_eq!(slot.get(&[j]), Some(*id), "menu {m} item {i} sub {j} resolves");
+                            assert!(specs.contains(id), "menu {m} item {i} sub {j}: {id} registered");
+                        }
+                    }
+                }
+            }
+        }
+        assert!(leaf_rows > 50, "PhotoCraft ships a full menu surface ({leaf_rows} rows)");
     }
 }

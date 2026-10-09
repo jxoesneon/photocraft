@@ -3,6 +3,7 @@
 pub mod command_reg;
 pub mod commands;
 pub mod control;
+pub mod icons;
 pub mod menus;
 pub mod runner;
 pub mod shell;

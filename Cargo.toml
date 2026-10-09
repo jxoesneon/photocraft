@@ -3,6 +3,13 @@ resolver = "3"
 members = ["crates/*", "apps/*", "xtask"]
 default-members = ["crates/*", "apps/photocraft", "apps/photocraft-cli", "xtask"]
 
+# Local development rides the sibling martensite checkout — the fork loop
+# lands framework fixes there and they must reach the crafts immediately.
+# Publishing resolves the version specs normally (patch is dev-only).
+[patch.crates-io]
+martensite = { path = "../martensite/crates/martensite" }
+martensite-wgpu = { path = "../martensite/crates/martensite-wgpu" }
+
 [workspace.package]
 version = "0.5.0"
 edition = "2024"

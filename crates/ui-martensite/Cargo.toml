@@ -13,9 +13,8 @@ photocraft-color = { path = "../color" }
 photocraft-cms = { path = "../cms" }
 photocraft-io = { path = "../io" }
 
-martensite = "0.21"
 # `vello` turns the orchestrator's GPU path on — without it frames present empty.
-martensite-wgpu = { version = "0.21", features = ["vello"] }
+martensite = { version = "0.21", features = ["vello"] }
 winit = "0.31.0-beta.3"
 pollster = "1.0"
 glam = "0.33"

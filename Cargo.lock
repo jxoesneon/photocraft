@@ -369,7 +369,7 @@ dependencies = [
  "objc2-foundation 0.3.2",
  "parking_lot",
  "percent-encoding",
- "windows-sys 0.60.2",
+ "windows-sys 0.52.0",
  "x11rb",
 ]
 
@@ -1597,7 +1597,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -1887,7 +1887,7 @@ checksum = "94e7099f6313ecacbe1256e8ff9d617b75d1bcb16a6fddef94866d225a01a14a"
 dependencies = [
  "io-lifetimes 2.0.4",
  "rustix 1.1.5",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -2541,7 +2541,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "20fd6de4ccfcc187e38bc21cfa543cb5a302cb86a8b114eb7f0bf0dc9f8ac00f"
 dependencies = [
  "io-lifetimes 3.0.1",
- "windows-sys 0.60.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -2570,7 +2570,7 @@ checksum = "3640c1c38b8e4e43584d8df18be5fc6b0aa314ce6ebf51b53313d4306cca8e46"
 dependencies = [
  "hermit-abi",
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -2913,9 +2913,7 @@ dependencies = [
 
 [[package]]
 name = "martensite"
-version = "0.21.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b54c937cd2e24b10b312863388eedec34e148f5e93bbc7f0f6b5fe58060c5082"
+version = "0.21.1"
 dependencies = [
  "accesskit 0.25.1",
  "glam",
@@ -2948,17 +2946,18 @@ dependencies = [
  "martensite-wgpu",
  "martensite-window",
  "parking_lot",
+ "pollster 1.0.1",
  "taffy",
+ "tracing",
  "unicode-segmentation",
  "web-sys",
  "web-time",
+ "winit 0.31.0-beta.3",
 ]
 
 [[package]]
 name = "martensite-access"
-version = "0.21.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f1bf1f377764f1d7ea717e11e76e30eb43287ffd906cc2e1e2006c540e005091"
+version = "0.21.1"
 dependencies = [
  "accesskit 0.25.1",
  "glam",
@@ -2978,9 +2977,7 @@ dependencies = [
 
 [[package]]
 name = "martensite-access-platform"
-version = "0.21.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3a06476da70cdbff95401d4ca171792662c6bbd56f0f40b50e1ba8c0e37d81da"
+version = "0.21.1"
 dependencies = [
  "accesskit 0.25.1",
  "accesskit_android",
@@ -2990,9 +2987,7 @@ dependencies = [
 
 [[package]]
 name = "martensite-accesskit-winit"
-version = "0.21.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "363b08657fc3d6bc496cbefb3fa02ab9c249b8b86f346fd612034fc2e4d2b217"
+version = "0.21.1"
 dependencies = [
  "accesskit 0.25.1",
  "accesskit_macos 0.27.1",
@@ -3005,9 +3000,7 @@ dependencies = [
 
 [[package]]
 name = "martensite-assets"
-version = "0.21.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "024f3d7a17e046d69402ad3bef3be4e4291537e54d2103e9fb3d556b8ab2b2b2"
+version = "0.21.1"
 dependencies = [
  "martensite-core",
  "naga 30.0.1",
@@ -3018,9 +3011,7 @@ dependencies = [
 
 [[package]]
 name = "martensite-blessed"
-version = "0.21.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3ae5bd53f6d718107d422394b588efe6ff000eb091914c54e52faa8988627a48"
+version = "0.21.1"
 dependencies = [
  "martensite-core",
  "martensite-render",
@@ -3032,9 +3023,7 @@ dependencies = [
 
 [[package]]
 name = "martensite-clipboard"
-version = "0.21.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "90984027a2c13a87e8b03a5a1f4332d9adf8f6579579bac65a5065008fab06df"
+version = "0.21.1"
 dependencies = [
  "js-sys",
  "martensite-clipboard-platform",
@@ -3047,18 +3036,14 @@ dependencies = [
 
 [[package]]
 name = "martensite-clipboard-platform"
-version = "0.21.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8c2d17c031e66876fa2c42c9f05a8b38d5c260573b7637469fdce388199f5e62"
+version = "0.21.1"
 dependencies = [
  "windows 0.61.3",
 ]
 
 [[package]]
 name = "martensite-core"
-version = "0.21.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a0c63a279604be8799e2a57fd25447de10f54265f3f442e7c2f6b9beedab9d03"
+version = "0.21.1"
 dependencies = [
  "accesskit 0.25.1",
  "bitflags 2.13.2",
@@ -3075,8 +3060,6 @@ dependencies = [
 [[package]]
 name = "martensite-cosmic-text"
 version = "0.19.0-martensite.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cb07960745c90c41f1241fdb930d107dd120fabde38fea633e6ef5bfefe3745c"
 dependencies = [
  "bitflags 2.13.2",
  "fontdb 0.24.0",
@@ -3098,9 +3081,7 @@ dependencies = [
 
 [[package]]
 name = "martensite-design-lint"
-version = "0.21.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fed4390611f1d321cbdb32e0e23cf865a1286e12f1cb876659a07c3436c0da68"
+version = "0.21.1"
 dependencies = [
  "kurbo 0.13.1",
  "martensite-core",
@@ -3109,9 +3090,7 @@ dependencies = [
 
 [[package]]
 name = "martensite-devtools"
-version = "0.21.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "15eb66f65036f28dfd3c80920532128155b14c8cffc6982eb29d745d82977830"
+version = "0.21.1"
 dependencies = [
  "accesskit 0.25.1",
  "bitflags 2.13.2",
@@ -3132,9 +3111,7 @@ dependencies = [
 
 [[package]]
 name = "martensite-dnd"
-version = "0.21.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5bc0f1e7f87b2a5663225e61b823c370bcfe7207a8e2e7b48ffbe0bcd38e8bd3"
+version = "0.21.1"
 dependencies = [
  "bitflags 2.13.2",
  "glam",
@@ -3148,9 +3125,7 @@ dependencies = [
 
 [[package]]
 name = "martensite-engine-bridge"
-version = "0.21.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3c57ba7ae3453270f9291f35b820cd48155bf1c24d4357e741dfa25ce42f5c44"
+version = "0.21.1"
 dependencies = [
  "martensite-core",
  "parking_lot",
@@ -3159,9 +3134,7 @@ dependencies = [
 
 [[package]]
 name = "martensite-focus"
-version = "0.21.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9bbe8ab6150977b730df5a10a9b5fcb3d859eef6642f270c181a80393b56b479"
+version = "0.21.1"
 dependencies = [
  "glam",
  "martensite-core",
@@ -3170,9 +3143,7 @@ dependencies = [
 
 [[package]]
 name = "martensite-history"
-version = "0.21.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "089774a196941a1ee8afce5694134a85eed6b7ae0a8e0d4ac1e79bd54027c26f"
+version = "0.21.1"
 dependencies = [
  "martensite-core",
  "martensite-reactive",
@@ -3182,9 +3153,7 @@ dependencies = [
 
 [[package]]
 name = "martensite-l10n"
-version = "0.21.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fd3540a679456a8c35477097dd58e6716ebbb39b1105b4aa31e460e2dda77b51"
+version = "0.21.1"
 dependencies = [
  "fluent-bundle",
  "fluent-langneg 0.14.2",
@@ -3195,9 +3164,7 @@ dependencies = [
 
 [[package]]
 name = "martensite-layout"
-version = "0.21.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c0f5e83b3e42a71b00ace6471793bf37342499d0d7825da9d026a0ae53ab7769"
+version = "0.21.1"
 dependencies = [
  "glam",
  "martensite-core",
@@ -3206,15 +3173,11 @@ dependencies = [
 
 [[package]]
 name = "martensite-macros"
-version = "0.21.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ee99ffd87feaaf17e1df086ff8cf2bd70cf252ca52b028f0db73fa880e363355"
+version = "0.21.1"
 
 [[package]]
 name = "martensite-media"
-version = "0.21.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "758f70fe47a83996fd2f9a87d32166c7623ccbb87ddcb38f6af93552fb8fb8f1"
+version = "0.21.1"
 dependencies = [
  "bytemuck",
  "glam",
@@ -3225,9 +3188,7 @@ dependencies = [
 
 [[package]]
 name = "martensite-media-platform"
-version = "0.21.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "eb78edc4f3f5c1f6d6070fca9ca1186607da2d674a8bcdd8dc4de92028c43129"
+version = "0.21.1"
 dependencies = [
  "drm 0.12.0",
  "objc2 0.6.4",
@@ -3240,33 +3201,25 @@ dependencies = [
 
 [[package]]
 name = "martensite-motion"
-version = "0.21.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6d5d5d24f00f4ddfa0101fc89f07050e6457b8d89ab9650d78de48bdaf0a9952"
+version = "0.21.1"
 dependencies = [
  "glam",
 ]
 
 [[package]]
 name = "martensite-pdf"
-version = "0.21.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "abb881469e439caa2eab250dfe3f771476b1269c7eb9f9b5959a074a9fe1e9c1"
+version = "0.21.1"
 dependencies = [
  "martensite-pdf-platform",
 ]
 
 [[package]]
 name = "martensite-pdf-platform"
-version = "0.21.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "02cff6d29820263b6eee73311071d74508bc37d8fe741894f721bb10fae2b47a"
+version = "0.21.1"
 
 [[package]]
 name = "martensite-reactive"
-version = "0.21.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "555397276a9e8833bad122d973db4614659a72799b924295081caa29ec4cb33d"
+version = "0.21.1"
 dependencies = [
  "parking_lot",
  "slotmap",
@@ -3276,9 +3229,7 @@ dependencies = [
 
 [[package]]
 name = "martensite-render"
-version = "0.21.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2b26869d23b28a965ed7d0c5689a1673d732ec126dec8951e8df5d7590b2f445"
+version = "0.21.1"
 dependencies = [
  "kurbo 0.13.1",
  "martensite-core",
@@ -3295,27 +3246,21 @@ dependencies = [
 
 [[package]]
 name = "martensite-sanitize"
-version = "0.21.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "02f45c20c4a11732de754c9b3b2649cbc42505df3fabd78899082603d1e83a7a"
+version = "0.21.1"
 dependencies = [
  "unicode-normalization",
 ]
 
 [[package]]
 name = "martensite-shell"
-version = "0.21.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cc91db932434d491a95d3b00625ccbf126a6605e374e45f83c4ef772b0675ec2"
+version = "0.21.1"
 dependencies = [
  "martensite-theme",
 ]
 
 [[package]]
 name = "martensite-text"
-version = "0.21.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "27e1bf9d41a933ff3bb76e248c7e2c0256464330cfd7739af414db9089fc90d5"
+version = "0.21.1"
 dependencies = [
  "fontdb 0.24.0",
  "glam",
@@ -3339,9 +3284,7 @@ dependencies = [
 
 [[package]]
 name = "martensite-theme"
-version = "0.21.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0af3f378e7193816109b32ef2f0ba1aafa80121472f8202e602029a3d5691268"
+version = "0.21.1"
 dependencies = [
  "bytemuck",
 ]
@@ -3349,8 +3292,6 @@ dependencies = [
 [[package]]
 name = "martensite-vello"
 version = "0.10.0-martensite.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d369509409ef37c3fd1758e50dd0377186d43cca797d2e91810e2137e7ea05b7"
 dependencies = [
  "bytemuck",
  "futures-intrusive",
@@ -3367,24 +3308,18 @@ dependencies = [
 
 [[package]]
 name = "martensite-webview"
-version = "0.21.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a6723ec3b789518c7ecd0e23f59c8820eb602921f5f3db33296b25eb4355ab7a"
+version = "0.21.1"
 
 [[package]]
 name = "martensite-webview-platform"
-version = "0.21.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0b0b8bb3a2e02d03c994ac51b6293a68f67f5f0c23f70003a2f5d4d54cdc180e"
+version = "0.21.1"
 dependencies = [
  "martensite-webview",
 ]
 
 [[package]]
 name = "martensite-wgpu"
-version = "0.21.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5c41d6673df18ba266e950e2f3af5fefb2b9ffd99575aa7d33829e33b42c63f7"
+version = "0.21.1"
 dependencies = [
  "bytemuck",
  "glam",
@@ -3405,9 +3340,7 @@ dependencies = [
 
 [[package]]
 name = "martensite-window"
-version = "0.21.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "770185a48134bb877ce7c51edcd1a68b0166dfefa1a125036fcd92c472938b84"
+version = "0.21.1"
 dependencies = [
  "bitflags 2.13.2",
  "glam",
@@ -4697,7 +4630,6 @@ dependencies = [
  "kurbo 0.13.1",
  "log",
  "martensite",
- "martensite-wgpu",
  "photocraft-cms",
  "photocraft-color",
  "photocraft-doc",
@@ -5441,7 +5373,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys 0.4.15",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -5454,7 +5386,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys 0.12.1",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -6063,10 +5995,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.4.3",
+ "getrandom 0.3.4",
  "once_cell",
  "rustix 1.1.5",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -7255,7 +7187,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -7453,15 +7385,6 @@ name = "windows-sys"
 version = "0.52.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "282be5f36a8ce781fad8c8ae18fa3f9beff57ec1b52cb3de0789201425d9a33d"
-dependencies = [
- "windows-targets 0.52.6",
-]
-
-[[package]]
-name = "windows-sys"
-version = "0.59.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1e38bc4d79ed67fd075bcc251a1c39b32a1776bbe92e5bef1f0bf1f8c531853b"
 dependencies = [
  "windows-targets 0.52.6",
 ]
@@ -8004,7 +7927,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3f3fd376f71958b862e7afb20cfe5a22830e1963462f3a17f49d82a6c1d1f42d"
 dependencies = [
  "bitflags 2.13.2",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
