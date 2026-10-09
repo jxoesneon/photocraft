@@ -24,15 +24,10 @@ use crate::root;
 
 /// Paths whose upstream content must never merge. `ui-egui` is a tombstone;
 /// `ui-martensite` is ours; the app entries are the Martensite runners.
-const PROTECTED: &[&str] =
-    &["crates/ui-egui", "crates/ui-martensite", "apps/photocraft", "apps/photocraft-web"];
+const PROTECTED: &[&str] = &["crates/ui-egui", "crates/ui-martensite", "apps/photocraft", "apps/photocraft-web"];
 
 fn git(args: &[&str]) -> Result<std::process::Output, String> {
-    Command::new("git")
-        .args(args)
-        .current_dir(root())
-        .output()
-        .map_err(|e| format!("git {}: {e}", args.first().copied().unwrap_or("")))
+    Command::new("git").args(args).current_dir(root()).output().map_err(|e| format!("git {}: {e}", args.first().copied().unwrap_or("")))
 }
 
 fn git_ok(args: &[&str]) -> Result<String, String> {
@@ -84,20 +79,12 @@ fn force_ours(path: &str) -> Result<(), String> {
 
 pub fn run(args: &[&str]) -> Result<(), String> {
     let apply = args.iter().any(|a| *a == "--apply");
-    let remote = args
-        .iter()
-        .position(|a| *a == "--remote")
-        .and_then(|i| args.get(i + 1))
-        .copied()
-        .unwrap_or("upstream");
+    let remote = args.iter().position(|a| *a == "--remote").and_then(|i| args.get(i + 1)).copied().unwrap_or("upstream");
     let upstream_ref = format!("{remote}/main");
 
     git_ok(&["fetch", remote])?;
     let base = git_ok(&["merge-base", "HEAD", &upstream_ref])?;
-    let behind = git_lines(&["rev-list", "--count", &format!("HEAD..{upstream_ref}")])?
-        .first()
-        .cloned()
-        .unwrap_or_else(|| "0".into());
+    let behind = git_lines(&["rev-list", "--count", &format!("HEAD..{upstream_ref}")])?.first().cloned().unwrap_or_else(|| "0".into());
     let commits = incoming_commits(&base, &upstream_ref)?;
     let gui: Vec<&Incoming> = commits.iter().filter(|c| c.gui).collect();
 
