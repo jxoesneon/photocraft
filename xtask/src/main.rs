@@ -13,6 +13,7 @@ mod pinned;
 mod scorecard;
 mod sha256;
 mod stats;
+mod sync;
 mod version;
 
 use std::path::{Path, PathBuf};
@@ -45,6 +46,11 @@ commands:
                   print the workspace version, or set it (Cargo.toml + Cargo.lock)
   ico <out.ico> <in.png>...
                   pack square PNGs (<= 256 px) into a Windows .ico (see packaging/icons.sh)
+  sync [--remote upstream] [--apply]
+                  fetch upstream and merge it with the GUI surface pinned to ours
+                  (crates/ui-egui, crates/ui-martensite, apps/photocraft{,-web});
+                  incoming GUI commits land in log/upstream-gui-report.md for
+                  re-adaptation into the Martensite shell
 ";
 
 fn main() -> ExitCode {
@@ -63,6 +69,7 @@ fn main() -> ExitCode {
         Some("scorecard") => scorecard::run(&root(), &rest),
         Some("version") => version::run(&root(), &rest),
         Some("ico") => ico::run(&rest),
+        Some("sync") => sync::run(&rest),
         Some("-h" | "--help" | "help") | None => {
             print!("{USAGE}");
             Ok(())
