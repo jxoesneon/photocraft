@@ -78,7 +78,7 @@ fn force_ours(path: &str) -> Result<(), String> {
 }
 
 pub fn run(args: &[&str]) -> Result<(), String> {
-    let apply = args.iter().any(|a| *a == "--apply");
+    let apply = args.contains(&"--apply");
     let remote = args.iter().position(|a| *a == "--remote").and_then(|i| args.get(i + 1)).copied().unwrap_or("upstream");
     let upstream_ref = format!("{remote}/main");
 
