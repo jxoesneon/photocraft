@@ -76,6 +76,9 @@ pub struct RunnerConfig {
     pub on_started: Option<Box<dyn FnOnce() + Send>>,
     /// Startup warnings shown on the status bar.
     pub notices: Vec<String>,
+    /// Linux only: open the event loop on X11 (Xwayland) — the `performance.
+    /// linuxDisplayServer` preference resolved it in `main`; ignored elsewhere.
+    pub prefer_x11: bool,
 }
 
 impl Default for RunnerConfig {
@@ -96,6 +99,7 @@ impl Default for RunnerConfig {
             drains: Vec::new(),
             on_started: None,
             notices: Vec::new(),
+            prefer_x11: false,
         }
     }
 }
@@ -499,7 +503,18 @@ pub fn run(cfg: RunnerConfig) -> Result<(), LaunchError> {
     // The PhotoCraft icon overlay is the ambient family for the UI thread —
     // install before the event loop starts and keep it for the app's life.
     std::mem::forget(martensite::icons::install_ambient_icons(crate::icons::ambient_set()));
-    let event_loop = EventLoop::new().map_err(|e| LaunchError { message: e.to_string(), gpu_init: false })?;
+    #[cfg(target_os = "linux")]
+    let event_loop = {
+        let mut builder = EventLoop::builder();
+        if cfg.prefer_x11 {
+            use winit::platform::x11::EventLoopBuilderExtX11 as _;
+            builder.with_x11();
+        }
+        builder.build()
+    };
+    #[cfg(not(target_os = "linux"))]
+    let event_loop = EventLoop::new();
+    let event_loop = event_loop.map_err(|e| LaunchError { message: e.to_string(), gpu_init: false })?;
     event_loop.set_control_flow(ControlFlow::Poll);
     let runner = Runner::new(cfg);
     let launch_error = runner.launch_error.clone();

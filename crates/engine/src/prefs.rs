@@ -885,7 +885,6 @@ pub const HIDDEN_UNTIL_IMPLEMENTED: &[&str] = &[
     "fileHandling.lowercaseExtension",
     "general.exportClipboard",
     "interface.showChannelsInColor",
-    "performance.linuxDisplayServer",
     "performance.lowResolutionPreviews",
     "tools.zoomClickedPointToCenter",
     "type.fillNewTypeLayersWithPlaceholder",
