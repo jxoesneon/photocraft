@@ -84,10 +84,14 @@ impl MenuCmd {
     }
 }
 
-/// Builds the menu bar from the engine's real command surface.
-/// Returns the bar plus `menu_commands[menu][item]` in the same declaration
-/// order the bar's `MenuPath` ([menu, item, …]) reports.
-fn build_menubar(engine: &Engine) -> (MenuBar, Vec<Vec<MenuCmd>>) {
+/// `(label, items)` per top-level menu.
+type MenuModel = Vec<(&'static str, Vec<MenuItem>)>;
+
+/// Builds the menu model from the engine's real command surface:
+/// `(label, items)` per top-level menu plus `menu_commands[menu][item]`
+/// in the same declaration order the bar's `MenuPath` ([menu, item, …])
+/// reports.
+fn menu_model(engine: &Engine) -> (MenuModel, Vec<Vec<MenuCmd>>) {
     // First-level menus, in the order the engine declares them (deduped).
     let mut menu_names: Vec<&'static str> = Vec::new();
     for spec in photocraft_engine::command_specs() {
@@ -97,7 +101,7 @@ fn build_menubar(engine: &Engine) -> (MenuBar, Vec<Vec<MenuCmd>>) {
             menu_names.push(top);
         }
     }
-    let mut bar = MenuBar::new();
+    let mut menus: Vec<(&'static str, Vec<MenuItem>)> = Vec::new();
     let mut commands: Vec<Vec<MenuCmd>> = Vec::new();
     for name in menu_names {
         let mut items: Vec<MenuItem> = Vec::new();
@@ -133,9 +137,21 @@ fn build_menubar(engine: &Engine) -> (MenuBar, Vec<Vec<MenuCmd>>) {
             }
         }
         if !items.is_empty() {
-            bar = bar.menu(name, items);
+            menus.push((name, items));
             commands.push(slots);
         }
+    }
+    (menus, commands)
+}
+
+/// Builds the menu bar from the engine's real command surface.
+/// Returns the bar plus `menu_commands[menu][item]` in the same declaration
+/// order the bar's `MenuPath` ([menu, item, …]) reports.
+fn build_menubar(engine: &Engine) -> (MenuBar, Vec<Vec<MenuCmd>>) {
+    let (menus, commands) = menu_model(engine);
+    let mut bar = MenuBar::new();
+    for (label, items) in menus {
+        bar = bar.menu(label, items);
     }
     (bar, commands)
 }
@@ -149,6 +165,9 @@ struct CanvasArea {
     zoom: f32,
     pan: [f32; 2],
     doc: Option<(u32, u32)>,
+    /// Set when a document arrives before the canvas is laid out — the first
+    /// `layout`/`paint` with real bounds fits it like Photoshop's Fit on Screen.
+    pending_fit: bool,
     marks: Vec<(Vec2, Vec2, [u8; 4])>,
     stroke_open: bool,
     last: Option<Vec2>,
@@ -164,6 +183,7 @@ impl CanvasArea {
             zoom: 1.0,
             pan: [0.0, 0.0],
             doc: None,
+            pending_fit: false,
             marks: Vec::new(),
             stroke_open: false,
             last: None,
@@ -192,6 +212,19 @@ impl CanvasArea {
         self.pan[1] = (cursor.y - cy) / self.scale - ((cursor.y - cy) / self.scale - self.pan[1]) * ratio;
         self.zoom = new;
     }
+
+    /// The doc `w`×`h` centred at a zoom that fills the canvas with a small
+    /// margin, capped at 100% — small documents open at their pixel size.
+    fn fit_doc(&mut self, w: u32, h: u32) {
+        let (bw, bh) = (self.bounds.width(), self.bounds.height());
+        if w == 0 || h == 0 || bw <= 0.0 || bh <= 0.0 {
+            return;
+        }
+        let denom = self.scale.max(0.01);
+        let fit = (bw / (w as f32 * denom)).min(bh / (h as f32 * denom)) * 0.92;
+        self.zoom = fit.min(1.0).clamp(0.02, 64.0);
+        self.pan = [0.0, 0.0];
+    }
 }
 
 impl Widget for CanvasArea {
@@ -202,6 +235,12 @@ impl Widget for CanvasArea {
     fn layout(&mut self, cx: &mut LayoutContext, bounds: Rect) {
         self.bounds = bounds;
         self.scale = cx.scale;
+        if self.pending_fit {
+            if let Some((w, h)) = self.doc {
+                self.fit_doc(w, h);
+            }
+            self.pending_fit = false;
+        }
     }
 
     fn event(&mut self, cx: &mut EventContext) -> EventResponse {
@@ -268,6 +307,9 @@ impl Widget for CanvasArea {
         let Some((w, h)) = self.doc else {
             return;
         };
+        // The document can be larger than the viewport at high zoom — its
+        // cells and strokes clip to the canvas, never over the chrome.
+        cx.list.push_clip(kr(b));
         let c = Vec2::new(b.min_x() + b.width() / 2.0 + self.pan[0] * s, b.min_y() + b.height() / 2.0 + self.pan[1] * s);
         let dw = w as f32 * self.zoom * s;
         let dh = h as f32 * self.zoom * s;
@@ -296,6 +338,7 @@ impl Widget for CanvasArea {
             path.line_to((f64::from(p1.x), f64::from(p1.y)));
             cx.list.push_stroke_path(path, (3.0 * self.zoom * s).max(1.0), *color);
         }
+        cx.list.pop_clip();
     }
 }
 
@@ -540,19 +583,43 @@ impl Widget for PhotoCraftShell {
         drop(guard);
         if docs != self.last_doc_count {
             self.last_doc_count = docs;
-            // Document set changed: menu enablement is stale — rebuild the bar.
+            // Document set changed: menu enablement is stale — refresh the
+            // items in place. Replacing the bar drops its popup stack and
+            // shared state, orphaning any open menu.
             let engine = self.app.engine.clone();
             let guard = engine.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-            let (bar, commands) = build_menubar(&guard);
+            let (menus, commands) = menu_model(&guard);
             drop(guard);
-            self.menubar = bar;
+            if menus.len() == self.menubar.menu_count() {
+                for (index, (_, items)) in menus.into_iter().enumerate() {
+                    self.menubar.set_items(index, items);
+                }
+            } else {
+                // Menu structure changed (a new top-level menu appeared):
+                // a rebuild is unavoidable — live popups go defunct and
+                // are swept by the overlay layer.
+                let mut bar = MenuBar::new();
+                for (label, items) in menus {
+                    bar = bar.menu(label, items);
+                }
+                self.menubar = bar;
+                let mut hot = HotNode { bounds: self.menubar_r, ..Default::default() };
+                self.menubar.layout(&mut LayoutContext { hot: &mut hot, scale: self.scale }, self.menubar_r);
+            }
             self.menu_commands = commands;
-            let mut hot = HotNode { bounds: self.menubar_r, ..Default::default() };
-            self.menubar.layout(&mut LayoutContext { hot: &mut hot, scale: self.scale }, self.menubar_r);
             repaint = true;
         }
         if self.canvas.doc != doc {
             self.canvas.doc = doc;
+            // A document opening (or changing size) shows Fit on Screen; when
+            // the canvas was never laid out the flag waits for `layout`.
+            if let Some((w, h)) = doc {
+                if self.canvas.bounds.width() > 0.0 {
+                    self.canvas.fit_doc(w, h);
+                } else {
+                    self.canvas.pending_fit = true;
+                }
+            }
             repaint = true;
         }
         self.canvas.fg = to_u8(fg);
@@ -699,6 +766,19 @@ mod tests {
             assert!(s.child(i).is_some());
             assert!(s.child_bounds(i).is_some());
         }
+    }
+
+    #[test]
+    fn fit_doc_scales_large_documents_down_and_keeps_small_at_100() {
+        let mut canvas = CanvasArea::new();
+        canvas.bounds = Rect::new(0.0, 0.0, 1000.0, 700.0);
+        canvas.scale = 1.0;
+        canvas.fit_doc(1920, 1080);
+        assert!(canvas.zoom < 1.0, "a 1920px doc must shrink into a 1000pt canvas");
+        assert!(1920.0 * canvas.zoom <= 1000.0, "fitted doc width stays inside the canvas");
+        canvas.fit_doc(300, 200);
+        assert_eq!(canvas.zoom, 1.0, "small docs open at 100%");
+        assert_eq!(canvas.pan, [0.0, 0.0]);
     }
 
     #[test]

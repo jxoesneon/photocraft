@@ -282,7 +282,8 @@ impl Runner {
             modifiers: mods,
         };
         if let (Some(arena), Some(root), Some(window)) = (self.arena.as_ref(), self.root, self.window.as_ref()) {
-            self.router.dispatch_pointer_event(&mut arena.lock().unwrap_or_else(std::sync::PoisonError::into_inner), root, window.id(), &ev);
+            let mut arena = arena.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            self.router.dispatch_pointer_event(&mut arena, root, window.id(), &ev);
         }
     }
 }
