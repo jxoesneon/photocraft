@@ -820,8 +820,14 @@ impl Ex {
                     self.records.push(r);
                 }
                 LayerContent::Fill(f) => {
-                    let px = self.fill_pixels(l, f);
-                    let r = self.record(l, extra, Some(&px));
+                    // A fill layer whose source stored no pixels keeps none: writing our own
+                    // render would be adopted as the `fill_cache` on re-import, and the cached
+                    // pixels then win over the analytic render (depth-quantized and, in CMYK,
+                    // a lossy RGB→CMYK→RGB round) — the export changes how the file opens.
+                    // Solid/Gradient fills re-render identically from the block; pattern fills
+                    // keep pixels for readers that composite them instead of the fill.
+                    let px = if l.fill_cache.is_none() && !matches!(f, photocraft_doc::Fill::Pattern { .. }) { None } else { Some(self.fill_pixels(l, f)) };
+                    let r = self.record(l, extra, px.as_ref());
                     self.records.push(r);
                 }
                 LayerContent::Text(t) => {

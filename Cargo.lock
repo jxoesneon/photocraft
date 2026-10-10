@@ -3116,7 +3116,7 @@ dependencies = [
 
 [[package]]
 name = "martensite"
-version = "0.21.1"
+version = "0.22.0"
 dependencies = [
  "accesskit 0.25.1",
  "glam",
@@ -3160,7 +3160,7 @@ dependencies = [
 
 [[package]]
 name = "martensite-access"
-version = "0.21.1"
+version = "0.22.0"
 dependencies = [
  "accesskit 0.25.1",
  "glam",
@@ -3180,7 +3180,7 @@ dependencies = [
 
 [[package]]
 name = "martensite-access-platform"
-version = "0.21.1"
+version = "0.22.0"
 dependencies = [
  "accesskit 0.25.1",
  "accesskit_android",
@@ -3190,7 +3190,7 @@ dependencies = [
 
 [[package]]
 name = "martensite-accesskit-winit"
-version = "0.21.1"
+version = "0.22.0"
 dependencies = [
  "accesskit 0.25.1",
  "accesskit_macos 0.27.1",
@@ -3203,7 +3203,7 @@ dependencies = [
 
 [[package]]
 name = "martensite-assets"
-version = "0.21.1"
+version = "0.22.0"
 dependencies = [
  "martensite-core",
  "naga 30.0.1",
@@ -3214,7 +3214,7 @@ dependencies = [
 
 [[package]]
 name = "martensite-blessed"
-version = "0.21.1"
+version = "0.22.0"
 dependencies = [
  "martensite-core",
  "martensite-render",
@@ -3226,7 +3226,7 @@ dependencies = [
 
 [[package]]
 name = "martensite-clipboard"
-version = "0.21.1"
+version = "0.22.0"
 dependencies = [
  "js-sys",
  "martensite-clipboard-platform",
@@ -3239,14 +3239,14 @@ dependencies = [
 
 [[package]]
 name = "martensite-clipboard-platform"
-version = "0.21.1"
+version = "0.22.0"
 dependencies = [
  "windows 0.61.3",
 ]
 
 [[package]]
 name = "martensite-core"
-version = "0.21.1"
+version = "0.22.0"
 dependencies = [
  "accesskit 0.25.1",
  "bitflags 2.13.2",
@@ -3284,7 +3284,7 @@ dependencies = [
 
 [[package]]
 name = "martensite-design-lint"
-version = "0.21.1"
+version = "0.22.0"
 dependencies = [
  "kurbo 0.13.1",
  "martensite-core",
@@ -3293,7 +3293,7 @@ dependencies = [
 
 [[package]]
 name = "martensite-devtools"
-version = "0.21.1"
+version = "0.22.0"
 dependencies = [
  "accesskit 0.25.1",
  "bitflags 2.13.2",
@@ -3314,7 +3314,7 @@ dependencies = [
 
 [[package]]
 name = "martensite-dnd"
-version = "0.21.1"
+version = "0.22.0"
 dependencies = [
  "bitflags 2.13.2",
  "glam",
@@ -3328,7 +3328,7 @@ dependencies = [
 
 [[package]]
 name = "martensite-engine-bridge"
-version = "0.21.1"
+version = "0.22.0"
 dependencies = [
  "martensite-core",
  "parking_lot",
@@ -3337,7 +3337,7 @@ dependencies = [
 
 [[package]]
 name = "martensite-focus"
-version = "0.21.1"
+version = "0.22.0"
 dependencies = [
  "glam",
  "martensite-core",
@@ -3346,7 +3346,7 @@ dependencies = [
 
 [[package]]
 name = "martensite-history"
-version = "0.21.1"
+version = "0.22.0"
 dependencies = [
  "martensite-core",
  "martensite-reactive",
@@ -3356,7 +3356,7 @@ dependencies = [
 
 [[package]]
 name = "martensite-l10n"
-version = "0.21.1"
+version = "0.22.0"
 dependencies = [
  "fluent-bundle",
  "fluent-langneg 0.14.2",
@@ -3367,7 +3367,7 @@ dependencies = [
 
 [[package]]
 name = "martensite-layout"
-version = "0.21.1"
+version = "0.22.0"
 dependencies = [
  "glam",
  "martensite-core",
@@ -3376,11 +3376,11 @@ dependencies = [
 
 [[package]]
 name = "martensite-macros"
-version = "0.21.1"
+version = "0.22.0"
 
 [[package]]
 name = "martensite-media"
-version = "0.21.1"
+version = "0.22.0"
 dependencies = [
  "bytemuck",
  "glam",
@@ -3391,7 +3391,7 @@ dependencies = [
 
 [[package]]
 name = "martensite-media-platform"
-version = "0.21.1"
+version = "0.22.0"
 dependencies = [
  "drm 0.12.0",
  "objc2 0.6.4",
@@ -3404,25 +3404,25 @@ dependencies = [
 
 [[package]]
 name = "martensite-motion"
-version = "0.21.1"
+version = "0.22.0"
 dependencies = [
  "glam",
 ]
 
 [[package]]
 name = "martensite-pdf"
-version = "0.21.1"
+version = "0.22.0"
 dependencies = [
  "martensite-pdf-platform",
 ]
 
 [[package]]
 name = "martensite-pdf-platform"
-version = "0.21.1"
+version = "0.22.0"
 
 [[package]]
 name = "martensite-reactive"
-version = "0.21.1"
+version = "0.22.0"
 dependencies = [
  "parking_lot",
  "slotmap",
@@ -3432,7 +3432,7 @@ dependencies = [
 
 [[package]]
 name = "martensite-render"
-version = "0.21.1"
+version = "0.22.0"
 dependencies = [
  "kurbo 0.13.1",
  "martensite-core",
@@ -3449,21 +3449,21 @@ dependencies = [
 
 [[package]]
 name = "martensite-sanitize"
-version = "0.21.1"
+version = "0.22.0"
 dependencies = [
  "unicode-normalization",
 ]
 
 [[package]]
 name = "martensite-shell"
-version = "0.21.1"
+version = "0.22.0"
 dependencies = [
  "martensite-theme",
 ]
 
 [[package]]
 name = "martensite-text"
-version = "0.21.1"
+version = "0.22.0"
 dependencies = [
  "fontdb 0.24.0",
  "glam",
@@ -3487,7 +3487,7 @@ dependencies = [
 
 [[package]]
 name = "martensite-theme"
-version = "0.21.1"
+version = "0.22.0"
 dependencies = [
  "bytemuck",
 ]
@@ -3511,18 +3511,18 @@ dependencies = [
 
 [[package]]
 name = "martensite-webview"
-version = "0.21.1"
+version = "0.22.0"
 
 [[package]]
 name = "martensite-webview-platform"
-version = "0.21.1"
+version = "0.22.0"
 dependencies = [
  "martensite-webview",
 ]
 
 [[package]]
 name = "martensite-wgpu"
-version = "0.21.1"
+version = "0.22.0"
 dependencies = [
  "bytemuck",
  "glam",
@@ -3543,7 +3543,7 @@ dependencies = [
 
 [[package]]
 name = "martensite-window"
-version = "0.21.1"
+version = "0.22.0"
 dependencies = [
  "bitflags 2.13.2",
  "glam",

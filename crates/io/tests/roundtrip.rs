@@ -42,6 +42,33 @@ rt_case!(rt_gray16_pixels, ColorMode::Grayscale, SampleType::U16, Features::PIXE
 rt_case!(rt_cmyk8_pixels, ColorMode::Cmyk, SampleType::U8, Features::PIXELS);
 
 #[test]
+fn uncached_fill_layers_reopen_rendered_the_same() {
+    // A gradient fill layer a document was authored with (or one whose source
+    // stored no pixels) exports the fill block only, so a re-open renders it
+    // analytically like the original — no fill cache is adopted. Writing our
+    // own render would cache depth-quantized pixels: in CMYK the RGB→CMYK→RGB
+    // round visibly changed how the file reopened (corpus: psd-tools
+    // colormodes/4x4_16bit_cmyk.psd drifted by up to 32/255).
+    for (mode, depth) in [(ColorMode::Cmyk, SampleType::U16), (ColorMode::Rgb, SampleType::U8)] {
+        let mut d = gen_doc(mode, depth, Features::PIXELS);
+        d.layers.push(photocraft_doc::Layer::new(
+            "Gradient Fill 1",
+            photocraft_doc::LayerContent::Fill(photocraft_doc::Fill::gradient(
+                vec![(0.0, photocraft_color::Color::rgb(0.2, 0.5, 0.9)), (1.0, photocraft_color::Color::rgb(0.9, 0.6, 0.1))],
+                30.0,
+                1.0,
+                photocraft_doc::GradientStyle::Reflected,
+                false,
+            )),
+        ));
+        let back = roundtrip(&d);
+        let (a, b) = (photocraft_compose::flatten(&d), photocraft_compose::flatten(&back));
+        let err = common::max_diff(&a.px, &b.px);
+        assert!(err <= 1.0 / 255.0 + 1e-5, "{mode:?}/{depth:?}: reopened fill renders {err} off");
+    }
+}
+
+#[test]
 fn psb_roundtrip() {
     let d = gen_doc(ColorMode::Rgb, SampleType::U8, Features::ALL);
     let r = export(&d, "x.psb", &ExportOptions::default()).unwrap();
@@ -91,9 +118,9 @@ fn zero_sized_psd_is_rejected() {
 
 #[test]
 fn round_trip_reaches_a_fixed_point() {
-    // The first export renders fill layers ourselves; after import they carry
-    // those pixels as their fill cache, so from the second generation on the
-    // bytes are identical.
+    // Fill layers without a source cache export no pixels, so imports keep
+    // rendering them analytically; pattern fills keep theirs, and everything
+    // is byte-identical from the second generation on.
     let d = gen_doc(ColorMode::Rgb, SampleType::U16, Features::ALL);
     let a = export(&d, "a.psd", &ExportOptions::default()).unwrap().bytes;
     let b = export(&import("a.psd", &a).unwrap().document, "a.psd", &ExportOptions::default()).unwrap().bytes;

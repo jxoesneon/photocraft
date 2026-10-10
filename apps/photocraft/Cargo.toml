@@ -20,7 +20,7 @@ photocraft-geom = { path = "../../crates/geom" }
 photocraft-compose = { path = "../../crates/compose" }
 photocraft-format = { path = "../../crates/format" }
 # The GPU backend plan (crash-safe startup) is expressed in wgpu types.
-martensite = "0.21"
+martensite = "0.22"
 winit = "0.31.0-beta.3"
 pollster = "1.0"
 # Reads the saved window layout file to drop values that would abort startup.
