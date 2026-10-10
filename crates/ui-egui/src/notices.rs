@@ -42,6 +42,11 @@ fn cap_notices(app: &mut PhotocraftApp) {
     }
 }
 
+/// How to paste in hints: Edit › Paste's effective shortcut (`Ctrl+V`), else the menu path.
+pub(crate) fn paste_hint(app: &PhotocraftApp) -> String {
+    crate::shortcuts::shortcut_label(app, "edit.paste").unwrap_or_else(|| tl!("Edit › Paste").to_string())
+}
+
 /// Show the Wayland-specific fallback guidance unless the user dismissed it in preferences.
 pub fn wayland_file_drop_guidance(app: &mut PhotocraftApp) {
     if !app.services.is_wayland
@@ -54,7 +59,11 @@ pub fn wayland_file_drop_guidance(app: &mut PhotocraftApp) {
         app,
         tl!("Native file drag-and-drop is unavailable"),
         vec![
-            tl!("Native file drag-and-drop is not supported on Wayland yet. Use File › Open, or run PhotoCraft under XWayland with `WAYLAND_DISPLAY= photocraft`.").into(),
+            crate::i18n::fmt(
+                tl!("Native file drag-and-drop is not supported on Wayland yet. Use File › Open, or copy the image in your file manager and paste it with {paste}."),
+                &[("paste", &crate::shortcuts::shortcut_label(app, "edit.paste").unwrap_or_else(|| tl!("Edit › Paste").to_string()))],
+            ),
+            tl!("Or set Preferences › Performance › Linux display server to X11: PhotoCraft then always starts under XWayland.").into(),
         ],
         false,
         Some(WAYLAND_FILE_DROP_DISMISSED),
@@ -151,9 +160,11 @@ mod tests {
         let guidance = app.ui.notices[0].lines.join(" ");
         assert!(guidance.contains("not supported on Wayland yet"));
         assert!(guidance.contains("File › Open"));
-        assert!(!guidance.contains("Ctrl+V"));
-        assert!(guidance.contains("XWayland"));
-        assert!(guidance.contains("WAYLAND_DISPLAY= photocraft"));
+        // Pasting a copied image works on Wayland (#338), and the X11 preference
+        // opens the window under XWayland where drops work.
+        let paste = paste_hint(&app);
+        assert!(guidance.contains(&format!("paste it with {paste}")), "{guidance}");
+        assert!(guidance.contains("Linux display server to X11"), "{guidance}");
         assert_eq!(app.ui.notices[0].dismiss_pref.as_deref(), Some(WAYLAND_FILE_DROP_DISMISSED));
         for i in 0..MAX_NOTICES {
             post(&mut app, format!("Transient {i}"), Vec::new(), false, None);

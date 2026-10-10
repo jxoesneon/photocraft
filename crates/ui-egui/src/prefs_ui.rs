@@ -1207,7 +1207,7 @@ fn shortcuts_body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String
             }
             if ui.button(tl!("Reset All to Defaults")).clicked() {
                 overrides.clear();
-                message = tl!("All shortcuts reset to Photoshop defaults.").into();
+                message = tl!("All shortcuts reset to PhotoCraft defaults.").into();
             }
         });
     } else if ui.button(tl!("Show All Menu Items")).clicked() {
@@ -1287,7 +1287,7 @@ fn presets_body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String, 
             let _ = app.run("edit.presets.presetManager", json!({"action": "delete", "kind": kind, "index": selected}));
         }
         // Load Photoshop brushes (.abr) into the library.
-        if kind == "brushes" && ui.button(tl!("Load…")).on_hover_text(tl!("Import Photoshop brushes (.abr)")).clicked() {
+        if kind == "brushes" && ui.button(tl!("Load…")).on_hover_text(tl!("Import brushes (.abr)")).clicked() {
             app.open_dialog_file();
         }
     });
