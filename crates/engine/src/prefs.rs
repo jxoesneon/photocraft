@@ -879,6 +879,19 @@ pub const HIDDEN_UNTIL_IMPLEMENTED: &[&str] = &[
     "rawDefaults.sharpenFor",
     "rawDefaults.openAsSmartObject",
     "rawDefaults.applyAutoTone",
+    // Read by the upstream egui surface the sync pins out — readers land with
+    // their Martensite counterparts (queued in log/upstream-gui-report.md).
+    "enhancedControls.rotateViewWithTrackpad",
+    "fileHandling.lowercaseExtension",
+    "general.exportClipboard",
+    "interface.showChannelsInColor",
+    "performance.linuxDisplayServer",
+    "performance.lowResolutionPreviews",
+    "tools.zoomClickedPointToCenter",
+    "type.fillNewTypeLayersWithPlaceholder",
+    "type.useEscToCommit",
+    "unitsAndRulers.screenResolution",
+    "workspace.largeTabs",
     // Agent access is governed by the launch flags (`--control`, the automation roots), not
     // by these yet.
     "integrations.allowAgentControl",
