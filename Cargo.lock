@@ -4855,6 +4855,7 @@ dependencies = [
  "martensite",
  "photocraft-cms",
  "photocraft-color",
+ "photocraft-compose",
  "photocraft-doc",
  "photocraft-engine",
  "photocraft-geom",

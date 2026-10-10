@@ -11,6 +11,7 @@ photocraft-doc = { path = "../doc" }
 photocraft-geom = { path = "../geom" }
 photocraft-color = { path = "../color" }
 photocraft-cms = { path = "../cms" }
+photocraft-compose = { path = "../compose" }
 photocraft-io = { path = "../io" }
 
 # `vello` turns the orchestrator's GPU path on — without it frames present empty.

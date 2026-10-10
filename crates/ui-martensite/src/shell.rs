@@ -13,8 +13,13 @@ use martensite::widgets::status_bar::StatusBar;
 use martensite::widgets::tool_palette::{ToolItem, ToolPalette};
 use photocraft_engine::{Engine, Tool};
 
+use photocraft_doc::{Layer, LayerContent};
+use photocraft_engine::channel_cmds::{self, ChannelTarget};
+use serde_json::json;
+
 use crate::PhotocraftApp;
 use crate::commands::{CommandExecutor, EngineExecutor};
+use crate::dock::{ChannelRowModel, CharModel, CompRowModel, DockCmd, DockModel, LayerHeader, LayerRowModel, ParaModel, PathRowModel, RightDock};
 
 /// `PaintList` rect primitives take `kurbo` rects; node bounds are
 /// `martensite::core::Rect` — convert at the call site.
@@ -171,6 +176,8 @@ struct CanvasArea {
     marks: Vec<(Vec2, Vec2, [u8; 4])>,
     stroke_open: bool,
     last: Option<Vec2>,
+    /// Last pointer position in doc-space px — the Info panel reads it.
+    hover_doc: Option<Vec2>,
     fg: [u8; 4],
     bounds: Rect,
     scale: f32,
@@ -187,6 +194,7 @@ impl CanvasArea {
             marks: Vec::new(),
             stroke_open: false,
             last: None,
+            hover_doc: None,
             fg: [12, 12, 14, 255],
             bounds: Rect::new(0.0, 0.0, 0.0, 0.0),
             scale: 1.0,
@@ -259,6 +267,15 @@ impl Widget for CanvasArea {
                 EventResponse::RequestRepaint
             }
             WidgetEvent::PointerMoved { position } => {
+                self.hover_doc = if self.bounds.contains(*position)
+                    && let Some((w, h)) = self.doc
+                {
+                    let p = self.to_canvas(*position);
+                    // `to_canvas` is doc-centred; Info wants absolute px.
+                    Some(Vec2::new(p.x + w as f32 / 2.0, p.y + h as f32 / 2.0))
+                } else {
+                    None
+                };
                 if self.last.is_none() {
                     return EventResponse::Ignored;
                 }
@@ -362,6 +379,8 @@ pub struct PhotoCraftShell {
     palette: ToolPalette,
     statusbar: StatusBar,
     canvas: CanvasArea,
+    /// The right dock — the six Photoshop panel groups.
+    dock: RightDock,
     /// `menu_commands[menu][item]` — the id(s) behind each declared row.
     menu_commands: Vec<Vec<MenuCmd>>,
     /// Rebuild the menu bar when the open-document set changed enablement.
@@ -372,6 +391,7 @@ pub struct PhotoCraftShell {
     palette_r: Rect,
     statusbar_r: Rect,
     canvas_r: Rect,
+    dock_r: Rect,
     ctrl: bool,
     shift: bool,
     alt: bool,
@@ -400,6 +420,7 @@ impl PhotoCraftShell {
             palette: build_palette(tool_index(Tool::Move)),
             statusbar: StatusBar::new().message("Ready").label("status"),
             canvas,
+            dock: RightDock::new(),
             menu_commands,
             last_doc_count: usize::MAX,
             bounds: Rect::new(0.0, 0.0, 0.0, 0.0),
@@ -408,6 +429,7 @@ impl PhotoCraftShell {
             palette_r: Rect::new(0.0, 0.0, 0.0, 0.0),
             statusbar_r: Rect::new(0.0, 0.0, 0.0, 0.0),
             canvas_r: Rect::new(0.0, 0.0, 0.0, 0.0),
+            dock_r: Rect::new(0.0, 0.0, 0.0, 0.0),
             ctrl: false,
             shift: false,
             alt: false,
@@ -442,6 +464,235 @@ impl PhotoCraftShell {
             Ok(_) => self.pending_status = Some(id.to_string()),
             Err(e) => self.pending_status = Some(format!("{id}: {e}")),
         }
+    }
+
+    /// Runs a command a dock panel emitted — same seam as the menus, but the
+    /// id and params arrive as data.
+    fn run_dock_command(&mut self, id: &str, params: serde_json::Value) {
+        let engine = self.app.engine.clone();
+        match self.executor.execute(&mut self.app, &engine, id, &params) {
+            Ok(_) => self.pending_status = Some(id.to_string()),
+            Err(e) => self.pending_status = Some(format!("{id}: {e}")),
+        }
+    }
+
+    /// Snapshots the engine into the model the dock panels paint — the dock
+    /// sees a fresh engine read every tick.
+    fn dock_model(&mut self) -> DockModel {
+        let selected_path = self.dock.io().lock().unwrap_or_else(std::sync::PoisonError::into_inner).selected_path.clone();
+        let mask_target = self.dock.io().lock().unwrap_or_else(std::sync::PoisonError::into_inner).mask_target;
+        let engine = self.app.engine.clone();
+        let mut s = engine.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let swatch_conv = photocraft_engine::presets::swatches::SwatchConv::new(&s);
+        let mut m = DockModel {
+            fg: to_u8(s.tools.foreground),
+            bg: to_u8(s.tools.background),
+            swatches: s
+                .presets
+                .swatches
+                .iter()
+                .flat_map(|g| g.items.iter())
+                .map(|sw| swatch_conv.rgb(&sw.color).map(|c| (c.clamp(0.0, 1.0) * 255.0) as u8))
+                .collect(),
+            actions: s.actions.list.iter().map(|a| a.name.clone()).collect(),
+            blend_modes: photocraft_doc::BlendMode::LAYER_MODES.iter().map(|b| b.label().to_string()).collect(),
+            gradient_presets: s.presets.gradients.iter().flat_map(|g| g.items.iter().map(|p| p.name.clone())).collect(),
+            pattern_presets: s
+                .presets
+                .pattern_groups
+                .iter()
+                .flat_map(|g| g.items.iter())
+                .filter_map(|id| s.patterns.items.iter().find(|p| &p.id == id).map(|p| (p.id.clone(), p.display_name().to_string())))
+                .collect(),
+            ..Default::default()
+        };
+        let Some(st) = s.active() else { return m };
+        m.has_doc = true;
+        let doc = &st.doc;
+        m.doc_name = doc.name.clone();
+        m.doc_w = doc.size.width;
+        m.doc_h = doc.size.height;
+        m.doc_mode = format!("{:?}", doc.mode);
+
+        // --- Layers: display order is top-first; collapsed groups hide children.
+        push_layer_rows(&mut m.layers, &doc.layers, 0, st);
+        if let Some(l) = st.active_layer.and_then(|id| doc.layer(id)) {
+            let locked = l.locks.transparency || l.locks.pixels || l.locks.position || l.locks.artboard || l.locks.all;
+            let is_background = l.name == "Background"
+                && l.locks.transparency
+                && matches!(l.content, LayerContent::Raster(_))
+                && doc.layers.first().is_some_and(|b| b.id == l.id);
+            m.layer = Some(LayerHeader {
+                id: l.id.0,
+                blend: l.blend.label().to_string(),
+                opacity: l.opacity,
+                fill: l.fill_opacity,
+                locked,
+                is_group: l.is_group(),
+                is_background,
+            });
+            if let LayerContent::Text(t) = &l.content {
+                let run = t.runs.first().map(|r| &r.style);
+                m.char = Some(CharModel {
+                    family: run.map(|r| r.font_family.clone()).filter(|f| !f.is_empty()).unwrap_or_else(|| t.font_family.clone()),
+                    style: run.map(|r| r.font_style.clone()).filter(|s| !s.is_empty()).unwrap_or_else(|| "Regular".into()),
+                    size_pt: run.map_or(t.size_pt, |r| r.size_pt),
+                    leading_pt: run.and_then(|r| r.leading_pt),
+                    tracking: run.map_or(0.0, |r| r.tracking),
+                    color: to_u8(run.map_or(t.color, |r| r.color).c),
+                });
+                let p = t.paragraphs.first().map(|p| &p.style);
+                m.para = Some(ParaModel {
+                    align: p.map_or("Left".into(), |s| format!("{:?}", s.align)),
+                    first_line_pt: p.map_or(0.0, |s| s.first_line_indent_pt),
+                    start_indent_pt: p.map_or(0.0, |s| s.start_indent_pt),
+                    end_indent_pt: p.map_or(0.0, |s| s.end_indent_pt),
+                    space_before_pt: p.map_or(0.0, |s| s.space_before_pt),
+                    space_after_pt: p.map_or(0.0, |s| s.space_after_pt),
+                });
+            }
+        }
+
+        // --- Channels, in the reference's row order.
+        let mode = doc.pixel_format().mode;
+        let colors = channel_cmds::color_count(doc);
+        let view = &st.channel_view;
+        let multichannel = doc.mode == photocraft_doc::ColorMode::Multichannel;
+        let quick = doc.quick_mask.is_some();
+        let masked = st.active_layer.and_then(|id| doc.layer(id)).filter(|l| l.mask.is_some());
+        let mask_view = photocraft_engine::mask_view_cmds::current(st);
+        let gray_view = mask_view.is_some_and(|v| v.mode == photocraft_engine::mask_view_cmds::MaskViewMode::Gray);
+        let mask_targeted = masked.is_some() && mask_target && view.target == ChannelTarget::Composite && !quick;
+        if !multichannel {
+            m.channels.push(ChannelRowModel {
+                channel_ref: json!("composite"),
+                target_ref: json!("composite"),
+                layer: None,
+                is_mask: false,
+                clears_mask: true,
+                name: channel_cmds::composite_name(mode).to_string(),
+                visible: view.visible_colors(colors) == colors && !gray_view,
+                targeted: view.target == ChannelTarget::Composite && !quick && !mask_targeted,
+                temporary: false,
+            });
+            if colors > 1 {
+                for (k, name) in channel_cmds::color_names(mode).iter().enumerate() {
+                    m.channels.push(ChannelRowModel {
+                        channel_ref: json!({"color": k}),
+                        target_ref: json!({"color": k}),
+                        layer: None,
+                        is_mask: false,
+                        clears_mask: true,
+                        name: (*name).to_string(),
+                        visible: view.color_visible(k) && !gray_view,
+                        targeted: (view.target == ChannelTarget::Composite && !quick && !mask_targeted) || view.target == ChannelTarget::Color(k),
+                        temporary: false,
+                    });
+                }
+            }
+        }
+        if let Some(l) = masked {
+            m.channels.push(ChannelRowModel {
+                channel_ref: json!("mask"),
+                target_ref: json!("composite"),
+                layer: Some(l.id.0),
+                is_mask: true,
+                clears_mask: false,
+                name: format!("{} Mask", l.name),
+                visible: mask_view.is_some(),
+                targeted: mask_targeted,
+                temporary: true,
+            });
+        }
+        for (i, ch) in doc.channels.iter().enumerate() {
+            m.channels.push(ChannelRowModel {
+                channel_ref: json!(i),
+                target_ref: json!(i),
+                layer: None,
+                is_mask: false,
+                clears_mask: false,
+                name: ch.name.clone(),
+                visible: view.alpha_shown(i),
+                targeted: view.target == ChannelTarget::Alpha(i),
+                temporary: ch.spot.is_some(),
+            });
+        }
+        if quick {
+            m.channels.push(ChannelRowModel {
+                channel_ref: json!("quickMask"),
+                target_ref: json!("composite"),
+                layer: None,
+                is_mask: false,
+                clears_mask: false,
+                name: "Quick Mask".into(),
+                visible: !view.quick_mask_hidden,
+                targeted: view.target == ChannelTarget::Composite,
+                temporary: true,
+            });
+        }
+
+        // --- Paths: saved paths, the work path, then the active layer's
+        // shape/vector-mask path (temporary, italic — `path_rows` in egui).
+        for p in &doc.paths {
+            m.paths.push(PathRowModel {
+                key: p.name.clone(),
+                name: p.name.clone(),
+                selected: selected_path.as_deref() == Some(p.name.as_str()),
+                temporary: false,
+            });
+        }
+        if doc.work_path.is_some() {
+            m.paths.push(PathRowModel { key: "work".into(), name: "Work Path".into(), selected: selected_path.as_deref() == Some("work"), temporary: true });
+        }
+        if let Some(l) = st.active_layer.and_then(|id| doc.layer(id)) {
+            let (name, temporary) = match &l.content {
+                LayerContent::Shape(_) => (format!("{} Shape Path", l.name), true),
+                _ if l.vector_mask.is_some() => (format!("{} Vector Mask", l.name), true),
+                _ => (String::new(), false),
+            };
+            if !name.is_empty() {
+                m.paths.push(PathRowModel { key: "layer".into(), name, selected: selected_path.as_deref() == Some("layer"), temporary });
+            }
+        }
+
+        // --- Layer comps, actions, history.
+        m.comps = doc.layer_comps.iter().map(|c| CompRowModel { id: c.id, name: c.name.clone(), applied: doc.last_applied_comp == Some(c.id) }).collect();
+        m.history = st.history.entries();
+        m.history_current = m.history.len().saturating_sub(1);
+        m.redo = st.history.redo_labels().map(str::to_string).collect();
+
+        // --- Navigator viewport (normalised doc-space rect the canvas shows).
+        let (w, h) = (doc.size.width as f32, doc.size.height as f32);
+        if w > 0.0 && h > 0.0 && self.canvas.bounds.width() > 0.0 {
+            let z = self.canvas.zoom.max(0.02);
+            let vw = self.canvas.bounds.width() / (self.canvas.scale * z);
+            let vh = self.canvas.bounds.height() / (self.canvas.scale * z);
+            let cx = w / 2.0 - self.canvas.pan[0] / z;
+            let cy = h / 2.0 - self.canvas.pan[1] / z;
+            m.viewport = Some(((cx - vw / 2.0) / w, (cy - vh / 2.0) / h, vw / w, vh / h));
+        }
+
+        // --- Info: pointer position + pixel sample.
+        if let Some(p) = self.canvas.hover_doc
+            && p.x >= 0.0
+            && p.y >= 0.0
+            && p.x < w
+            && p.y < h
+        {
+            let sample =
+                s.execute("document.pixel", json!({"x": p.x as i64, "y": p.y as i64})).ok().and_then(|v| serde_json::from_value::<Vec<f32>>(v).ok()).map(|c| {
+                    to_u8([
+                        c.first().copied().unwrap_or(0.0),
+                        c.get(1).copied().unwrap_or(0.0),
+                        c.get(2).copied().unwrap_or(0.0),
+                        c.get(3).copied().unwrap_or(1.0),
+                    ])
+                });
+            if let Some(rgba) = sample {
+                m.pointer = Some((p.x, p.y, rgba));
+            }
+        }
+        m
     }
 
     /// Drains the menu/palette/status seams into commands and tool state.
@@ -494,10 +745,12 @@ impl PhotoCraftShell {
         match key {
             "Control" | "ControlLeft" | "ControlRight" => {
                 self.ctrl = down;
+                self.dock.set_mods(self.shift, self.ctrl || self.meta);
                 return EventResponse::Handled;
             }
             "Shift" | "ShiftLeft" | "ShiftRight" => {
                 self.shift = down;
+                self.dock.set_mods(self.shift, self.ctrl || self.meta);
                 return EventResponse::Handled;
             }
             "Alt" | "AltLeft" | "AltRight" | "AltGraph" => {
@@ -506,6 +759,7 @@ impl PhotoCraftShell {
             }
             "Meta" | "Super" | "SuperLeft" | "SuperRight" => {
                 self.meta = down;
+                self.dock.set_mods(self.shift, self.ctrl || self.meta);
                 return EventResponse::Handled;
             }
             _ => {}
@@ -561,9 +815,12 @@ impl Widget for PhotoCraftShell {
         self.menubar_r = Rect::new(bounds.min_x(), bounds.min_y(), bounds.width(), top);
         self.palette_r = Rect::new(bounds.min_x(), self.menubar_r.max_y(), side, bounds.height() - top - bottom);
         self.statusbar_r = Rect::new(bounds.min_x(), bounds.max_y() - bottom, bounds.width(), bottom);
-        self.canvas_r = Rect::new(self.palette_r.max_x(), self.menubar_r.max_y(), bounds.width() - side, self.palette_r.height());
+        // The right dock claims its reserved width; the canvas gets the rest.
+        let dock_w = (self.dock.reserved_width() * s).min(bounds.width() - side);
+        self.dock_r = Rect::new(bounds.max_x() - dock_w, self.menubar_r.max_y(), dock_w, self.palette_r.height());
+        self.canvas_r = Rect::new(self.palette_r.max_x(), self.menubar_r.max_y(), self.dock_r.min_x() - self.palette_r.max_x(), self.palette_r.height());
         // Layout the internal children into their strips.
-        for i in 0..4 {
+        for i in 0..5 {
             let (Some(r), Some(child)) = (self.child_bounds(i), self.child_mut(i)) else {
                 continue;
             };
@@ -625,6 +882,36 @@ impl Widget for PhotoCraftShell {
         self.canvas.fg = to_u8(fg);
         self.app.zoom_level = self.canvas.zoom;
         self.app.pan_offset = self.canvas.pan;
+        // Dock panels queued commands during event dispatch — run them, then
+        // hand the panels a fresh engine snapshot.
+        for cmd in self.dock.take_actions() {
+            match cmd {
+                DockCmd::Engine(id, params) => self.run_dock_command(&id, params),
+                DockCmd::PanTo(x, y) => {
+                    if let Some((w, h)) = self.canvas.doc {
+                        self.canvas.pan = [(w as f32 / 2.0 - x) * self.canvas.zoom, (h as f32 / 2.0 - y) * self.canvas.zoom];
+                        self.app.pan_offset = self.canvas.pan;
+                    }
+                }
+                DockCmd::SelectPath(key) => self.dock.io().lock().unwrap_or_else(std::sync::PoisonError::into_inner).selected_path = Some(key),
+            }
+            repaint = true;
+        }
+        // Rail toggles and width drags change `reserved_width` without a
+        // window resize — the runner only re-lays out on resize, so the
+        // shell must re-layout the canvas/dock pair itself.
+        let dock_w = (self.dock.reserved_width() * self.scale).min(self.bounds.width() - PALETTE_W * self.scale);
+        if (dock_w - self.dock_r.width()).abs() > 0.5 {
+            self.dock_r = Rect::new(self.bounds.max_x() - dock_w, self.menubar_r.max_y(), dock_w, self.palette_r.height());
+            self.canvas_r = Rect::new(self.palette_r.max_x(), self.menubar_r.max_y(), self.dock_r.min_x() - self.palette_r.max_x(), self.palette_r.height());
+            let mut hot = HotNode { bounds: self.canvas_r, ..Default::default() };
+            self.canvas.layout(&mut LayoutContext { hot: &mut hot, scale: self.scale }, self.canvas_r);
+            let mut hot = HotNode { bounds: self.dock_r, ..Default::default() };
+            self.dock.layout(&mut LayoutContext { hot: &mut hot, scale: self.scale }, self.dock_r);
+            repaint = true;
+        }
+        let model = self.dock_model();
+        self.dock.set_model(model);
         // Control-channel requests and background drains (preset store, monitor
         // profiles, adapter-selection notes) run on the UI thread here.
         {
@@ -678,7 +965,7 @@ impl Widget for PhotoCraftShell {
     }
 
     fn child_count(&self) -> usize {
-        4
+        5
     }
 
     fn child(&self, index: usize) -> Option<&dyn Widget> {
@@ -687,6 +974,7 @@ impl Widget for PhotoCraftShell {
             1 => Some(&self.palette),
             2 => Some(&self.canvas),
             3 => Some(&self.statusbar),
+            4 => Some(&self.dock),
             _ => None,
         }
     }
@@ -697,6 +985,7 @@ impl Widget for PhotoCraftShell {
             1 => Some(&mut self.palette),
             2 => Some(&mut self.canvas),
             3 => Some(&mut self.statusbar),
+            4 => Some(&mut self.dock),
             _ => None,
         }
     }
@@ -707,7 +996,45 @@ impl Widget for PhotoCraftShell {
             1 => Some(self.palette_r),
             2 => Some(self.canvas_r),
             3 => Some(self.statusbar_r),
+            4 => Some(self.dock_r),
             _ => None,
+        }
+    }
+}
+
+/// Flattens the layer tree into display rows, top-of-stack first — the
+/// reference's `display_rows`: collapsed groups hide their children and
+/// Select › Isolate Layers restricts the list (ancestors still show).
+fn push_layer_rows(out: &mut Vec<LayerRowModel>, layers: &[Layer], depth: usize, st: &photocraft_engine::DocState) {
+    for l in layers.iter().rev() {
+        if !photocraft_engine::select_extra_cmds::isolation_shows(&st.doc, &st.isolated_layers, l.id) {
+            continue;
+        }
+        let expanded = matches!(&l.content, LayerContent::Group(g) if g.expanded);
+        out.push(LayerRowModel {
+            id: l.id.0,
+            name: l.name.clone(),
+            depth,
+            visible: l.visible,
+            is_group: l.is_group(),
+            expanded,
+            selected: st.selected_layers().contains(&l.id),
+            primary: st.active_layer == Some(l.id),
+            locked: l.locks.transparency || l.locks.pixels || l.locks.position || l.locks.artboard || l.locks.all,
+            clipped: l.clipped,
+            kind: match &l.content {
+                LayerContent::Raster(_) => "pixel",
+                LayerContent::Group(_) => "group",
+                LayerContent::Adjustment(_) | LayerContent::Fill(_) => "adjustment",
+                LayerContent::Text(_) => "type",
+                LayerContent::Shape(_) => "shape",
+                LayerContent::Smart(_) => "smart",
+            },
+        });
+        if let LayerContent::Group(g) = &l.content
+            && g.expanded
+        {
+            push_layer_rows(out, &g.children, depth + 1, st);
         }
     }
 }
@@ -759,10 +1086,10 @@ mod tests {
     }
 
     #[test]
-    fn shell_mounts_four_children() {
+    fn shell_mounts_five_children() {
         let s = shell();
-        assert_eq!(s.child_count(), 4);
-        for i in 0..4 {
+        assert_eq!(s.child_count(), 5);
+        for i in 0..5 {
             assert!(s.child(i).is_some());
             assert!(s.child_bounds(i).is_some());
         }
@@ -790,6 +1117,8 @@ mod tests {
         s.layout(&mut LayoutContext { hot: &mut hot, scale: 1.0 }, r);
         assert!(s.menubar_r.max_y() <= s.palette_r.min_y());
         assert!(s.palette_r.max_x() <= s.canvas_r.min_x());
+        assert!(s.canvas_r.max_x() <= s.dock_r.min_x());
+        assert!(s.dock_r.max_x() <= r.max_x());
         assert!(s.canvas_r.max_y() <= s.statusbar_r.min_y());
     }
 
