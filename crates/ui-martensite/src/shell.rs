@@ -740,6 +740,25 @@ impl PhotoCraftShell {
                 changed = true;
             }
         }
+        // Double-clicking a tool cell keeps Photoshop's tool shortcuts:
+        // the Hand fits the document on screen, the Zoom jumps to 100%.
+        // These are view actions, not engine commands; with no document
+        // open the double-click only picks the tool.
+        while let Some(i) = self.palette.take_double_clicked() {
+            match TOOLS.get(i) {
+                Some(Tool::Hand) => {
+                    if let Some((w, h)) = self.canvas.doc {
+                        self.canvas.fit_doc(w, h);
+                        changed = true;
+                    }
+                }
+                Some(Tool::Zoom) if self.canvas.doc.is_some() => {
+                    self.canvas.zoom = 1.0;
+                    changed = true;
+                }
+                _ => {}
+            }
+        }
         while self.statusbar.take_activated().is_some() {}
         changed
     }
@@ -754,6 +773,30 @@ impl PhotoCraftShell {
         let shift = self.shift;
         let alt = self.alt;
         photocraft_engine::command_specs().iter().filter(|s| !s.menu.is_empty()).find_map(|s| shortcut_matches(s.shortcut?, key, shift, alt).then_some(s.id))
+    }
+
+    /// `Ctrl+Tab` / `Ctrl+Shift+Tab`: Photoshop's document cycling, in tab
+    /// order, wrapping at either end. A view action, not an engine command —
+    /// `Ctrl+Tab` reaches the documents even while a field has focus, since
+    /// nothing edits with it.
+    fn cycle_document(&mut self, back: bool) -> EventResponse {
+        let engine = self.app.engine.clone();
+        let mut guard = engine.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let n = guard.documents().len();
+        let Some(active) = guard.active_index() else { return EventResponse::Ignored };
+        if n < 2 {
+            return EventResponse::Ignored;
+        }
+        let next = if back { active.checked_sub(1).unwrap_or(n - 1) } else { (active + 1) % n };
+        if !guard.set_active(next) {
+            return EventResponse::Ignored;
+        }
+        let name = guard.active().map(|d| d.doc.name.clone()).unwrap_or_default();
+        drop(guard);
+        if !name.is_empty() {
+            self.pending_status = Some(name);
+        }
+        EventResponse::RequestRepaint
     }
 
     fn set_tool(&mut self, tool: Tool) {
@@ -788,6 +831,22 @@ impl PhotoCraftShell {
             _ => {}
         }
         if down {
+            if key == "Tab" && (self.ctrl || self.meta) {
+                return self.cycle_document(self.shift);
+            }
+            // Esc with no active operation deselects, like ⌘D — taken only
+            // when a selection exists, so a bare Esc writes no empty history
+            // step. Widgets that own Esc (open menus, the dock) consume it
+            // before it reaches the shell.
+            if key == "Escape" {
+                let engine = self.app.engine.clone();
+                let has_sel = engine.lock().unwrap_or_else(std::sync::PoisonError::into_inner).active().is_some_and(|d| d.doc.selection.is_some());
+                if !has_sel {
+                    return EventResponse::Ignored;
+                }
+                self.run_command("select.deselect");
+                return EventResponse::RequestRepaint;
+            }
             if let Some(id) = self.shortcut_command(key) {
                 self.run_command(id);
                 return EventResponse::RequestRepaint;
@@ -1187,6 +1246,112 @@ mod tests {
         let r = s.event(&mut cx);
         assert!(matches!(r, EventResponse::RequestRepaint | EventResponse::Handled));
         assert_eq!(s.app.active_tool, Tool::Brush);
+    }
+
+    /// Ctrl+Tab and Ctrl+Shift+Tab cycle the open documents in order,
+    /// wrapping at either end — Photoshop's document switching.
+    #[test]
+    fn ctrl_tab_cycles_the_open_documents() {
+        let mut s = shell();
+        {
+            let mut g = s.app.engine.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            for _ in 0..3 {
+                g.execute("file.new", serde_json::json!({"width": 8, "height": 8})).expect("file.new");
+            }
+            assert_eq!(g.active_index(), Some(2), "the newest document starts active");
+        }
+        let active = |s: &PhotoCraftShell| s.app.engine.lock().unwrap_or_else(std::sync::PoisonError::into_inner).active_index();
+        s.on_key("Control", true);
+        let press = |s: &mut PhotoCraftShell| s.on_key("Tab", true);
+        assert!(matches!(press(&mut s), EventResponse::RequestRepaint));
+        assert_eq!(active(&s), Some(0), "Ctrl+Tab on the last wraps to the first");
+        press(&mut s);
+        assert_eq!(active(&s), Some(1));
+        s.on_key("Shift", true);
+        press(&mut s);
+        assert_eq!(active(&s), Some(0), "Ctrl+Shift+Tab goes back");
+        press(&mut s);
+        assert_eq!(active(&s), Some(2), "and wraps to the last");
+        s.on_key("Control", false);
+        s.on_key("Shift", false);
+        assert!(matches!(s.on_key("Tab", true), EventResponse::Ignored), "plain Tab is not document cycling");
+    }
+
+    /// One document: cycling has nowhere to go, so Ctrl+Tab falls through.
+    #[test]
+    fn ctrl_tab_with_a_single_document_is_ignored() {
+        let mut s = shell();
+        {
+            let mut g = s.app.engine.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            g.execute("file.new", serde_json::json!({"width": 8, "height": 8})).expect("file.new");
+        }
+        s.on_key("Control", true);
+        assert!(matches!(s.on_key("Tab", true), EventResponse::Ignored));
+    }
+
+    /// Esc deselects when a selection exists, like ⌘D; a bare Esc with no
+    /// selection is ignored and writes no history step.
+    #[test]
+    fn escape_deselects_only_when_a_selection_exists() {
+        let mut s = shell();
+        {
+            let mut g = s.app.engine.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            g.execute("file.new", serde_json::json!({"width": 8, "height": 8})).expect("file.new");
+            g.execute("select.all", serde_json::json!({})).expect("select.all");
+            assert!(g.active().is_some_and(|d| d.doc.selection.is_some()));
+        }
+        assert!(matches!(s.on_key("Escape", true), EventResponse::RequestRepaint));
+        {
+            let g = s.app.engine.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            assert!(g.active().is_some_and(|d| d.doc.selection.is_none()), "Esc deselects");
+        }
+        let steps = {
+            let g = s.app.engine.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            g.active().map(|d| d.history.entries().len()).unwrap_or(0)
+        };
+        assert!(matches!(s.on_key("Escape", true), EventResponse::Ignored), "a bare Esc is untouched");
+        {
+            let g = s.app.engine.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            assert_eq!(g.active().map(|d| d.history.entries().len()), Some(steps), "no empty Deselect step");
+        }
+    }
+
+    /// Double-clicking the Zoom cell selects it and zooms to 100% — the
+    /// press runs through the real forwarding path, the second click of the
+    /// streak carries `count: 2`.
+    #[test]
+    fn double_click_on_the_zoom_tool_zooms_to_100() {
+        let mut s = shell();
+        let r = Rect::new(0.0, 0.0, 1280.0, 800.0);
+        let mut hot = HotNode { bounds: r, ..HotNode::default() };
+        s.layout(&mut LayoutContext { hot: &mut hot, scale: 1.0 }, r);
+        s.canvas.doc = Some((400, 300));
+        s.canvas.zoom = 0.5;
+        // Zoom is the palette's last cell (index 11): row pitch is 40pt.
+        let at = Vec2::new(22.0, 488.0);
+        let press = WidgetEvent::PointerPressed { button: martensite::core::PointerButton::Primary, position: at, count: 2 };
+        s.event(&mut EventContext { event: &press, bounds: r, scale: 1.0 });
+        assert_eq!(s.canvas.zoom, 1.0, "the Zoom tool's double-click is 100%");
+        let release = WidgetEvent::PointerReleased { button: martensite::core::PointerButton::Primary, position: at };
+        s.event(&mut EventContext { event: &release, bounds: r, scale: 1.0 });
+        assert_eq!(s.app.active_tool, Tool::Zoom, "the click also picks the tool");
+    }
+
+    /// Double-clicking the Hand cell fits the document on screen.
+    #[test]
+    fn double_click_on_the_hand_tool_fits_the_document() {
+        let mut s = shell();
+        let r = Rect::new(0.0, 0.0, 1280.0, 800.0);
+        let mut hot = HotNode { bounds: r, ..HotNode::default() };
+        s.layout(&mut LayoutContext { hot: &mut hot, scale: 1.0 }, r);
+        s.canvas.doc = Some((4000, 3000));
+        s.canvas.zoom = 1.0;
+        // Hand is one row above Zoom (index 10).
+        let press = WidgetEvent::PointerPressed { button: martensite::core::PointerButton::Primary, position: Vec2::new(22.0, 448.0), count: 2 };
+        let mut cx = EventContext { event: &press, bounds: r, scale: 1.0 };
+        s.event(&mut cx);
+        assert!(s.canvas.zoom < 1.0, "a 4000px doc must shrink to fit");
+        assert_eq!(s.canvas.pan, [0.0, 0.0], "the fit recentres");
     }
 
     #[test]
