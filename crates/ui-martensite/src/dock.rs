@@ -195,6 +195,8 @@ pub enum DockCmd {
     Engine(String, Value),
     /// Pan the canvas so the doc-space point (x, y) centres the viewport.
     PanTo(f32, f32),
+    /// Zoom the canvas around its viewport centre by `factor`.
+    Zoom(f32),
     /// Select a Paths row (view state, like egui's `ui.selected_path`).
     SelectPath(String),
 }
@@ -1346,6 +1348,16 @@ impl Widget for NavigatorPanel {
     }
 
     fn event(&mut self, cx: &mut EventContext) -> EventResponse {
+        // The wheel over the preview zooms the document — the Navigator has
+        // its own zoom target even where the canvas scrolls (#2724). One
+        // ×1.1 step per notch, like the canvas wheel.
+        if let WidgetEvent::Scroll { position, delta } = cx.event
+            && let Some((r, _)) = self.doc_rect()
+            && contains(&r, *position)
+        {
+            self.push(DockCmd::Zoom(if delta.y > 0.0 { 1.1 } else { 1.0 / 1.1 }));
+            return EventResponse::Handled;
+        }
         if let WidgetEvent::PointerPressed { position, .. } | WidgetEvent::PointerMoved { position, .. } = cx.event
             && let Some((r, scale)) = self.doc_rect()
             && contains(&r, *position)
@@ -2624,6 +2636,27 @@ mod tests {
         fire(&mut p, b, &press(100.0, 100.0));
         let acts = actions(&io);
         assert!(acts.iter().any(|c| matches!(c, DockCmd::PanTo(x, y) if *x > 0.0 && *y > 0.0)), "the preview click pans the canvas: {acts:?}");
+    }
+
+    /// The wheel over the preview zooms the document — one ×1.1 step per
+    /// notch, like the canvas wheel (#2724). Outside the preview the
+    /// gesture belongs to the dock's own scrolling.
+    #[test]
+    fn navigator_wheel_over_the_preview_zooms_the_document() {
+        let io = io();
+        io_lock(&io).model = DockModel { has_doc: true, doc_w: 1000, doc_h: 800, ..Default::default() };
+        let mut p = NavigatorPanel::new(&io);
+        let b = rr(0.0, 0.0, 200.0, 200.0);
+        lay(&mut p, b);
+        let scroll = |x, y, dy| WidgetEvent::Scroll { position: Vec2::new(x, y), delta: Vec2::new(0.0, dy) };
+        assert!(matches!(fire(&mut p, b, &scroll(100.0, 100.0, 1.0)), EventResponse::Handled));
+        let acts = actions(&io);
+        assert!(acts.iter().any(|c| matches!(c, DockCmd::Zoom(f) if *f > 1.0)), "wheel up zooms in: {acts:?}");
+        assert!(matches!(fire(&mut p, b, &scroll(100.0, 100.0, -1.0)), EventResponse::Handled));
+        let acts = actions(&io);
+        assert!(acts.iter().any(|c| matches!(c, DockCmd::Zoom(f) if *f < 1.0)), "wheel down zooms out: {acts:?}");
+        // Off the preview the dock's list scrolling owns the wheel.
+        assert!(matches!(fire(&mut p, b, &scroll(4.0, 4.0, 1.0)), EventResponse::Ignored));
     }
 
     // ------------------------------------------------------------ command surface

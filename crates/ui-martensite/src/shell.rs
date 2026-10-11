@@ -415,8 +415,21 @@ pub struct PhotoCraftShell {
     shift: bool,
     alt: bool,
     meta: bool,
+    /// Photoshop's Tab hides the tools column and status bar; Shift+Tab
+    /// hides the panels only. The two toggles are independent, like the
+    /// toolbox/panels split they come from.
+    tools_hidden: bool,
+    dock_hidden: bool,
     /// Status line the shell wants shown on the next tick.
     pending_status: Option<String>,
+    /// The permanent status-bar text — the document's dimensions in the
+    /// ruler unit, like Photoshop's Doc: readout.
+    dims: String,
+    /// When the active temporary status was posted — auto-hide follows
+    /// the Interface notification preferences.
+    temporary_at: Option<std::time::Instant>,
+    notice_auto_hide: bool,
+    notice_secs: u32,
 }
 
 impl PhotoCraftShell {
@@ -453,7 +466,13 @@ impl PhotoCraftShell {
             shift: false,
             alt: false,
             meta: false,
+            tools_hidden: false,
+            dock_hidden: false,
             pending_status: None,
+            dims: String::new(),
+            temporary_at: None,
+            notice_auto_hide: true,
+            notice_secs: 6,
         }
     }
 
@@ -834,6 +853,20 @@ impl PhotoCraftShell {
             if key == "Tab" && (self.ctrl || self.meta) {
                 return self.cycle_document(self.shift);
             }
+            // Plain Tab hides the tools column and the panels; Shift+Tab
+            // hides the panels only — Photoshop's workspace toggles. The
+            // runner re-lays out only on resize, so reflow eagerly.
+            if key == "Tab" && !self.alt {
+                if self.shift {
+                    self.dock_hidden = !self.dock_hidden;
+                } else {
+                    let hide = !(self.tools_hidden && self.dock_hidden);
+                    self.tools_hidden = hide;
+                    self.dock_hidden = hide;
+                }
+                self.layout(&mut LayoutContext { hot: &mut HotNode::default(), scale: self.scale }, self.bounds);
+                return EventResponse::RequestRepaint;
+            }
             // Esc with no active operation deselects, like ⌘D — taken only
             // when a selection exists, so a bare Esc writes no empty history
             // step. Widgets that own Esc (open menus, the dock) consume it
@@ -892,13 +925,14 @@ impl Widget for PhotoCraftShell {
         self.scale = cx.scale;
         let s = cx.scale;
         let top = MENUBAR_H * s;
-        let bottom = STATUS_H * s;
-        let side = PALETTE_W * s;
+        // Hidden chrome collapses to zero area — the canvas takes the space.
+        let bottom = if self.tools_hidden { 0.0 } else { STATUS_H * s };
+        let side = if self.tools_hidden { 0.0 } else { PALETTE_W * s };
         self.menubar_r = Rect::new(bounds.min_x(), bounds.min_y(), bounds.width(), top);
         self.palette_r = Rect::new(bounds.min_x(), self.menubar_r.max_y(), side, bounds.height() - top - bottom);
         self.statusbar_r = Rect::new(bounds.min_x(), bounds.max_y() - bottom, bounds.width(), bottom);
         // The right dock claims its reserved width; the canvas gets the rest.
-        let dock_w = (self.dock.reserved_width() * s).min(bounds.width() - side);
+        let dock_w = if self.dock_hidden { 0.0 } else { (self.dock.reserved_width() * s).min(bounds.width() - side) };
         self.dock_r = Rect::new(bounds.max_x() - dock_w, self.menubar_r.max_y(), dock_w, self.palette_r.height());
         self.canvas_r = Rect::new(self.palette_r.max_x(), self.menubar_r.max_y(), self.dock_r.min_x() - self.palette_r.max_x(), self.palette_r.height());
         // Layout the internal children into their strips.
@@ -922,7 +956,28 @@ impl Widget for PhotoCraftShell {
         let active = guard.active().map(|d| (std::sync::Arc::clone(&d.doc), d.revision));
         let doc = active.as_ref().map(|(d, _)| (d.size.width, d.size.height));
         let fg = guard.tools.foreground;
+        // The permanent status text: the document's dimensions in the
+        // ruler unit and its resolution, like Photoshop's Doc: readout.
+        let dims = match guard.active() {
+            Some(d) => {
+                let u = &guard.prefs().units_and_rulers;
+                let dpi = f64::from(d.doc.resolution_dpi);
+                let (w, h) = (f64::from(d.doc.size.width), f64::from(d.doc.size.height));
+                let unit = u.rulers.suffix();
+                format!("{} {unit} x {} {unit} ({} ppi)", u.format(w, dpi, w), u.format(h, dpi, h), photocraft_engine::prefs::fmt_decimals(dpi, 1))
+            }
+            None => "No document".to_string(),
+        };
+        let prefs = guard.prefs();
+        let (auto_hide, hide_secs) = (prefs.interface.notification_auto_hide, prefs.interface.notification_duration_seconds);
         drop(guard);
+        self.notice_auto_hide = auto_hide;
+        self.notice_secs = hide_secs;
+        if dims != self.dims {
+            self.dims.clone_from(&dims);
+            self.statusbar.set_message(dims);
+            repaint = true;
+        }
         if docs != self.last_doc_count {
             self.last_doc_count = docs;
             // Document set changed: menu enablement is stale — refresh the
@@ -1009,14 +1064,22 @@ impl Widget for PhotoCraftShell {
                         self.app.pan_offset = self.canvas.pan;
                     }
                 }
+                DockCmd::Zoom(factor) => {
+                    let b = self.canvas.bounds;
+                    let c = Vec2::new(b.min_x() + b.width() / 2.0, b.min_y() + b.height() / 2.0);
+                    self.canvas.zoom_at(factor, c);
+                    self.app.zoom_level = self.canvas.zoom;
+                    self.app.pan_offset = self.canvas.pan;
+                }
                 DockCmd::SelectPath(key) => self.dock.io().lock().unwrap_or_else(std::sync::PoisonError::into_inner).selected_path = Some(key),
             }
             repaint = true;
         }
         // Rail toggles and width drags change `reserved_width` without a
         // window resize — the runner only re-lays out on resize, so the
-        // shell must re-layout the canvas/dock pair itself.
-        let dock_w = (self.dock.reserved_width() * self.scale).min(self.bounds.width() - PALETTE_W * self.scale);
+        // shell must re-layout the canvas/dock pair itself. A hidden dock
+        // reserves nothing.
+        let dock_w = if self.dock_hidden { 0.0 } else { (self.dock.reserved_width() * self.scale).min(self.bounds.width() - PALETTE_W * self.scale) };
         if (dock_w - self.dock_r.width()).abs() > 0.5 {
             self.dock_r = Rect::new(self.bounds.max_x() - dock_w, self.menubar_r.max_y(), dock_w, self.palette_r.height());
             self.canvas_r = Rect::new(self.palette_r.max_x(), self.menubar_r.max_y(), self.dock_r.min_x() - self.palette_r.max_x(), self.palette_r.height());
@@ -1045,11 +1108,21 @@ impl Widget for PhotoCraftShell {
         // warnings, open failures) land on the status bar in order.
         if let Some(msg) = self.app.pending_notices.first().cloned() {
             self.app.pending_notices.remove(0);
-            self.statusbar.set_message(msg);
+            self.statusbar.temporary(msg);
+            self.temporary_at = Some(std::time::Instant::now());
             repaint = true;
         }
         if let Some(msg) = self.pending_status.take() {
-            self.statusbar.set_message(msg);
+            // Transient statuses displace the Doc: readout, never erase it;
+            // auto-hide follows the Interface notification preferences.
+            self.statusbar.temporary(msg);
+            self.temporary_at = Some(std::time::Instant::now());
+            repaint = true;
+        }
+        if self.statusbar.has_temporary() && self.notice_auto_hide && self.temporary_at.is_some_and(|at| at.elapsed().as_secs() >= u64::from(self.notice_secs))
+        {
+            self.statusbar.clear_temporary();
+            self.temporary_at = None;
             repaint = true;
         }
         repaint
@@ -1274,7 +1347,44 @@ mod tests {
         assert_eq!(active(&s), Some(2), "and wraps to the last");
         s.on_key("Control", false);
         s.on_key("Shift", false);
-        assert!(matches!(s.on_key("Tab", true), EventResponse::Ignored), "plain Tab is not document cycling");
+        s.on_key("Tab", true);
+        assert!(s.tools_hidden && s.dock_hidden, "plain Tab hides the panels");
+    }
+
+    /// Tab hides the tools column, status bar and panels together;
+    /// Shift+Tab toggles the panels on their own — Photoshop's workspace
+    /// keys. Hidden chrome collapses so the canvas takes the space.
+    #[test]
+    fn tab_toggles_the_panels_like_photoshop() {
+        let mut s = shell();
+        let r = Rect::new(0.0, 0.0, 1280.0, 800.0);
+        let mut hot = HotNode { bounds: r, ..Default::default() };
+        s.layout(&mut LayoutContext { hot: &mut hot, scale: 1.0 }, r);
+        let (palette_w, dock_w, canvas_w) = (s.palette_r.width(), s.dock_r.width(), s.canvas_r.width());
+        assert!(palette_w > 0.0 && dock_w > 0.0);
+        // Tab hides both; the canvas claims the freed space.
+        s.on_key("Tab", true);
+        assert!(s.tools_hidden && s.dock_hidden);
+        assert_eq!(s.palette_r.width(), 0.0);
+        assert_eq!(s.statusbar_r.height(), 0.0);
+        assert_eq!(s.dock_r.width(), 0.0);
+        assert!(s.canvas_r.width() > canvas_w, "the canvas expands into the chrome's space");
+        // Shift+Tab alone shows only the panels — the tools stay hidden.
+        s.on_key("Shift", true);
+        s.on_key("Tab", true);
+        assert!(s.tools_hidden, "Shift+Tab doesn't touch the tools column");
+        assert!(!s.dock_hidden, "Shift+Tab shows the panels");
+        assert_eq!(s.palette_r.width(), 0.0);
+        assert_eq!(s.dock_r.width(), dock_w);
+        s.on_key("Shift", false);
+        // Tab again: the dock is visible, so "hide" wins and both close.
+        s.on_key("Tab", true);
+        assert!(s.tools_hidden && s.dock_hidden);
+        // And once more restores the full workspace.
+        s.on_key("Tab", true);
+        assert!(!s.tools_hidden && !s.dock_hidden);
+        assert_eq!(s.palette_r.width(), palette_w);
+        assert_eq!(s.dock_r.width(), dock_w);
     }
 
     /// One document: cycling has nowhere to go, so Ctrl+Tab falls through.
@@ -1314,6 +1424,39 @@ mod tests {
             let g = s.app.engine.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             assert_eq!(g.active().map(|d| d.history.entries().len()), Some(steps), "no empty Deselect step");
         }
+    }
+
+    /// The status bar's permanent text is the document's dimensions in the
+    /// ruler unit, like Photoshop's Doc: readout.
+    #[test]
+    fn status_bar_reads_the_document_dimensions() {
+        let mut s = shell();
+        {
+            let mut g = s.app.engine.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            g.execute("file.new", serde_json::json!({"width": 16, "height": 24})).expect("file.new");
+        }
+        s.tick(std::time::Duration::from_millis(16));
+        let msg = s.statusbar.current_message().to_string();
+        assert!(msg.contains("16 px x 24 px"), "the Doc: readout: {msg}");
+        assert!(msg.contains("ppi"), "resolution is part of the readout: {msg}");
+    }
+
+    /// A transient status displaces the readout but never erases it — it
+    /// comes back when the notice auto-hides.
+    #[test]
+    fn transient_status_displaces_then_restores_the_readout() {
+        let mut s = shell();
+        {
+            let mut g = s.app.engine.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            g.execute("file.new", serde_json::json!({"width": 16, "height": 24})).expect("file.new");
+        }
+        s.tick(std::time::Duration::from_millis(16));
+        s.pending_status = Some("Brush tool".to_string());
+        s.tick(std::time::Duration::from_millis(16));
+        assert_eq!(s.statusbar.current_message(), "Brush tool");
+        s.temporary_at = std::time::Instant::now().checked_sub(std::time::Duration::from_secs(60));
+        s.tick(std::time::Duration::from_millis(16));
+        assert!(s.statusbar.current_message().contains("16 px x 24 px"), "the readout returns");
     }
 
     /// Double-clicking the Zoom cell selects it and zooms to 100% — the
