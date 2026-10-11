@@ -9,7 +9,7 @@
 
 use glam::Vec2;
 use martensite::core::{
-    EventContext, EventResponse, HotNode, LayoutConstraints, LayoutContext, PaintContext, PointerButton, Rect, TokenKey, Widget, WidgetEvent,
+    EventContext, EventResponse, HotNode, ImageData, LayoutConstraints, LayoutContext, PaintContext, PointerButton, Rect, TokenKey, Widget, WidgetEvent,
 };
 use martensite::widgets::menu::MenuItem;
 use martensite::widgets::menu_button::MenuButton;
@@ -154,6 +154,9 @@ pub struct DockModel {
     pub pointer: Option<(f32, f32, [u8; 4])>,
     /// Normalised viewport rect on the document (Navigator), 0..1.
     pub viewport: Option<(f32, f32, f32, f32)>,
+    /// Composited document preview for the Navigator — the shell shares
+    /// the canvas's `ImageData` (Arc-backed, cheap to clone).
+    pub nav_preview: Option<ImageData>,
     /// Character panel state from the active type layer (`None` when the
     /// active layer isn't text).
     pub char: Option<CharModel>,
@@ -1362,6 +1365,9 @@ impl Widget for NavigatorPanel {
             return;
         };
         cx.list.push_fill_rect(kr(doc_r), [40, 41, 46, 255]);
+        if let Some(img) = &m.nav_preview {
+            cx.list.push_image(kr(doc_r), img.clone());
+        }
         cx.list.push_stroke_rect(kr(doc_r), 1.0, cx.color(TokenKey::BorderColor, [80, 82, 92, 255]));
         if let Some((vx, vy, vw, vh)) = m.viewport {
             let vr = rr(

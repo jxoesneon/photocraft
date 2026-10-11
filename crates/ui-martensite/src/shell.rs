@@ -5,7 +5,7 @@
 
 use glam::Vec2;
 use martensite::core::{
-    DropPayload, EventContext, EventResponse, HotNode, LayoutConstraints, LayoutContext, PaintContext, Rect, TokenKey, Widget, WidgetEvent,
+    DropPayload, EventContext, EventResponse, HotNode, ImageData, LayoutConstraints, LayoutContext, PaintContext, Rect, TokenKey, Widget, WidgetEvent,
 };
 use martensite::widgets::menu::MenuItem;
 use martensite::widgets::menu_bar::MenuBar;
@@ -178,6 +178,17 @@ struct CanvasArea {
     last: Option<Vec2>,
     /// Last pointer position in doc-space px — the Info panel reads it.
     hover_doc: Option<Vec2>,
+    /// The composited document, re-rendered by the shell when the active
+    /// document's revision moves. `ImageData` shares its pixels via `Arc`,
+    /// so painting a clone each frame is cheap.
+    composite: Option<ImageData>,
+    /// `(doc identity, revision)` the composite was rendered from —
+    /// `Arc::as_ptr` of the active `Document` plus `DocState::revision`.
+    composite_for: Option<(usize, u64)>,
+    /// 256-bin luminosity histogram of the composite — the Histogram
+    /// panel's series. Recomputed with the composite (the egui reference
+    /// bins the mean of R,G,B over opaque pixels).
+    histogram: Vec<u32>,
     fg: [u8; 4],
     bounds: Rect,
     scale: f32,
@@ -195,6 +206,9 @@ impl CanvasArea {
             stroke_open: false,
             last: None,
             hover_doc: None,
+            composite: None,
+            composite_for: None,
+            histogram: Vec::new(),
             fg: [12, 12, 14, 255],
             bounds: Rect::new(0.0, 0.0, 0.0, 0.0),
             scale: 1.0,
@@ -344,6 +358,11 @@ impl Widget for CanvasArea {
             }
             y += cell;
             row += 1;
+        }
+        // The composited document over the checkerboard — transparent
+        // regions keep the transparency signal.
+        if let Some(img) = &self.composite {
+            cx.list.push_image(kr(dr), img.clone());
         }
         cx.list.push_stroke_rect(kr(dr), s.max(1.0), [140, 146, 160, 255]);
         // Brush marks in canvas space.
@@ -663,6 +682,10 @@ impl PhotoCraftShell {
 
         // --- Navigator viewport (normalised doc-space rect the canvas shows).
         let (w, h) = (doc.size.width as f32, doc.size.height as f32);
+        // The Navigator shares the canvas's composite — Arc pixels, so the
+        // clone is a refcount bump, not a copy. The histogram rides along.
+        m.nav_preview = self.canvas.composite.clone();
+        m.histogram = self.canvas.histogram.clone();
         if w > 0.0 && h > 0.0 && self.canvas.bounds.width() > 0.0 {
             let z = self.canvas.zoom.max(0.02);
             let vw = self.canvas.bounds.width() / (self.canvas.scale * z);
@@ -835,7 +858,10 @@ impl Widget for PhotoCraftShell {
         let engine = self.app.engine.clone();
         let guard = engine.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let docs = guard.documents().len();
-        let doc = guard.active().map(|d| (d.doc.size.width, d.doc.size.height));
+        // `Arc<Document>` + revision: the composite cache key. The Arc
+        // clones under the lock so the flatten below runs unlocked.
+        let active = guard.active().map(|d| (std::sync::Arc::clone(&d.doc), d.revision));
+        let doc = active.as_ref().map(|(d, _)| (d.size.width, d.size.height));
         let fg = guard.tools.foreground;
         drop(guard);
         if docs != self.last_doc_count {
@@ -878,6 +904,37 @@ impl Widget for PhotoCraftShell {
                 }
             }
             repaint = true;
+        }
+        // Re-composite when the active document changed — the canvas blits
+        // `composite` over its checkerboard. Flattening runs unlocked (the
+        // `Arc` was cloned above); a stale composite is one revision old and
+        // replaced on the next tick, never permanently wrong.
+        match &active {
+            Some((d, rev)) => {
+                let key = (std::sync::Arc::as_ptr(d) as usize, *rev);
+                if self.canvas.composite_for != Some(key) {
+                    let img = photocraft_compose::flatten(d.as_ref()).to_rgba8();
+                    // The reference's composite channel: mean of R,G,B over
+                    // opaque pixels, 256 bins.
+                    let mut hist = vec![0u32; 256];
+                    for p in img.pixels.as_chunks::<4>().0 {
+                        if p[3] != 0 {
+                            hist[((p[0] as u32 + p[1] as u32 + p[2] as u32) / 3) as usize] += 1;
+                        }
+                    }
+                    self.canvas.histogram = hist;
+                    self.canvas.composite = ImageData::from_rgba(img.width, img.height, img.pixels);
+                    self.canvas.composite_for = Some(key);
+                    repaint = true;
+                }
+            }
+            None if self.canvas.composite_for.is_some() => {
+                self.canvas.composite = None;
+                self.canvas.composite_for = None;
+                self.canvas.histogram.clear();
+                repaint = true;
+            }
+            _ => {}
         }
         self.canvas.fg = to_u8(fg);
         self.app.zoom_level = self.canvas.zoom;
