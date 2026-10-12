@@ -209,6 +209,14 @@ struct CanvasArea {
     /// panel's series. Recomputed with the composite (the egui reference
     /// bins the mean of R,G,B over opaque pixels).
     histogram: Vec<u32>,
+    /// Preferences › General › Zoom with Scroll Wheel: swaps the wheel's
+    /// pan/zoom legs (the shell stamps it from prefs each tick).
+    zoom_with_wheel: bool,
+    /// Preferences › Enhanced Controls › Zoom with Trackpad Pinch.
+    pinch_zooms: bool,
+    /// Modifier state at the last key event — Alt+wheel is the zoom leg.
+    alt: bool,
+    shift: bool,
     fg: [u8; 4],
     bounds: Rect,
     scale: f32,
@@ -226,6 +234,10 @@ impl CanvasArea {
             stroke_open: false,
             last: None,
             hover_doc: None,
+            zoom_with_wheel: false,
+            pinch_zooms: true,
+            alt: false,
+            shift: false,
             composite: None,
             composite_for: None,
             histogram: Vec::new(),
@@ -339,8 +351,26 @@ impl Widget for CanvasArea {
                 if !self.bounds.contains(*position) {
                     return EventResponse::Ignored;
                 }
-                let factor = if delta.y > 0.0 { 1.1 } else { 1.0 / 1.1 };
-                self.zoom_at(factor, *position);
+                // Wheel navigation (upstream wheel_nav.rs): the wheel pans,
+                // Alt+wheel zooms a notch — Zoom with Scroll Wheel swaps the
+                // legs; Shift folds a vertical notch into a sideways pan.
+                if self.alt != self.zoom_with_wheel {
+                    let factor = if delta.y > 0.0 { 1.1 } else { 1.0 / 1.1 };
+                    self.zoom_at(factor, *position);
+                } else {
+                    let d = if self.shift && delta.x == 0.0 { Vec2::new(delta.y, 0.0) } else { *delta };
+                    self.pan[0] -= d.x / self.scale;
+                    self.pan[1] -= d.y / self.scale;
+                }
+                EventResponse::RequestRepaint
+            }
+            // Enhanced Controls › Zoom with Trackpad Pinch: the OS delta is a
+            // magnification increment around the tracked pointer.
+            WidgetEvent::Pinch { position, delta } => {
+                if !self.pinch_zooms || !self.bounds.contains(*position) {
+                    return EventResponse::Ignored;
+                }
+                self.zoom_at((1.0 + *delta as f32).max(0.01), *position);
                 EventResponse::RequestRepaint
             }
             _ => EventResponse::Ignored,
@@ -1010,6 +1040,9 @@ impl Widget for PhotoCraftShell {
         let prefs = guard.prefs();
         let (auto_hide, hide_secs) = (prefs.interface.notification_auto_hide, prefs.interface.notification_duration_seconds);
         let beep_when_done = prefs.general.beep_when_done;
+        // Wheel navigation follows the Enhanced Controls/General prefs.
+        self.canvas.zoom_with_wheel = prefs.general.zoom_with_scroll_wheel;
+        self.canvas.pinch_zooms = prefs.enhanced_controls.zoom_with_trackpad_pinch;
         // Background commands: apply finished jobs and read the front one's
         // progress for the status bar ("Saving NN%").
         let events = guard.poll_jobs();
@@ -1126,6 +1159,8 @@ impl Widget for PhotoCraftShell {
             _ => {}
         }
         self.canvas.fg = to_u8(fg);
+        self.canvas.alt = self.alt;
+        self.canvas.shift = self.shift;
         self.app.zoom_level = self.canvas.zoom;
         self.app.pan_offset = self.canvas.pan;
         // Dock panels queued commands during event dispatch — run them, then
@@ -1570,6 +1605,43 @@ mod tests {
         assert!(s.running_jobs.is_empty(), "the job ended");
         assert_eq!(s.statusbar.current_message(), "Fake Job");
         assert!(s.app.is_dirty, "a finished job invalidates the frame");
+    }
+
+    /// Enhanced Controls › Zoom with Trackpad Pinch: the magnification delta
+    /// zooms around the pointer while the preference allows it.
+    #[test]
+    fn pinch_zooms_the_canvas_when_the_pref_allows() {
+        let mut s = shell();
+        let r = Rect::new(0.0, 0.0, 1280.0, 800.0);
+        let mut hot = HotNode { bounds: r, ..HotNode::default() };
+        s.layout(&mut LayoutContext { hot: &mut hot, scale: 1.0 }, r);
+        s.canvas.doc = Some((400, 300));
+        let at = Vec2::new(640.0, 400.0);
+        let pinch = WidgetEvent::Pinch { position: at, delta: 0.5 };
+        s.event(&mut EventContext { event: &pinch, bounds: r, scale: 1.0 });
+        assert!((s.canvas.zoom - 1.5).abs() < 1e-4, "a +0.5 pinch is a ×1.5 zoom");
+        s.canvas.pinch_zooms = false;
+        s.event(&mut EventContext { event: &pinch, bounds: r, scale: 1.0 });
+        assert!((s.canvas.zoom - 1.5).abs() < 1e-4, "the preference gates the pinch");
+    }
+
+    /// The wheel pans by default and Alt+wheel zooms (upstream wheel_nav);
+    /// Zoom with Scroll Wheel swaps the legs.
+    #[test]
+    fn the_wheel_pans_and_alt_wheel_zooms() {
+        let mut s = shell();
+        let r = Rect::new(0.0, 0.0, 1280.0, 800.0);
+        let mut hot = HotNode { bounds: r, ..HotNode::default() };
+        s.layout(&mut LayoutContext { hot: &mut hot, scale: 1.0 }, r);
+        s.canvas.doc = Some((400, 300));
+        let at = Vec2::new(640.0, 400.0);
+        let scroll = WidgetEvent::Scroll { position: at, delta: Vec2::new(0.0, 48.0) };
+        s.event(&mut EventContext { event: &scroll, bounds: r, scale: 1.0 });
+        assert_eq!(s.canvas.zoom, 1.0, "a plain wheel pans, it does not zoom");
+        assert_ne!(s.canvas.pan, [0.0, 0.0]);
+        s.canvas.alt = true;
+        s.event(&mut EventContext { event: &scroll, bounds: r, scale: 1.0 });
+        assert!((s.canvas.zoom - 1.1).abs() < 1e-4, "Alt+wheel is the zoom leg");
     }
 
     /// Double-clicking the Zoom cell selects it and zooms to 100% — the

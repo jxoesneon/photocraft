@@ -440,6 +440,13 @@ impl ApplicationHandler for Runner {
                     self.router.dispatch_scroll_event(&mut arena.lock().unwrap_or_else(std::sync::PoisonError::into_inner), window.id(), d);
                 }
             }
+            // Trackpad pinch (Wayland/macOS): incremental magnification with
+            // no pointer position — the router supplies the tracked hover.
+            WindowEvent::PinchGesture { delta, .. } => {
+                if let (Some(arena), Some(window)) = (self.arena.as_ref(), self.window.as_ref()) {
+                    self.router.dispatch_pinch_event(&mut arena.lock().unwrap_or_else(std::sync::PoisonError::into_inner), window.id(), delta);
+                }
+            }
             WindowEvent::KeyboardInput { event, .. } => {
                 let pressed = event.state == ElementState::Pressed;
                 let key_name = match &event.logical_key {
