@@ -11,6 +11,8 @@ pub struct ToolSlot {
 pub const TOOL_SLOTS: &[ToolSlot] = &[
     ToolSlot { primary: Tool::Move, alternatives: &[] },
     ToolSlot { primary: Tool::Marquee, alternatives: &[] },
+    ToolSlot { primary: Tool::SingleRowMarquee, alternatives: &[] },
+    ToolSlot { primary: Tool::SingleColumnMarquee, alternatives: &[] },
     ToolSlot { primary: Tool::Lasso, alternatives: &[] },
     ToolSlot { primary: Tool::QuickSelection, alternatives: &[] },
     ToolSlot { primary: Tool::Crop, alternatives: &[] },

@@ -3122,6 +3122,7 @@ dependencies = [
  "glam",
  "kurbo 0.13.1",
  "martensite-access",
+ "martensite-accesskit-winit",
  "martensite-assets",
  "martensite-blessed",
  "martensite-clipboard",

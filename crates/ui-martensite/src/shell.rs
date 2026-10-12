@@ -38,6 +38,8 @@ const STATUS_H: f32 = 24.0;
 const TOOLS: &[Tool] = &[
     Tool::Move,
     Tool::Marquee,
+    Tool::SingleRowMarquee,
+    Tool::SingleColumnMarquee,
     Tool::Lasso,
     Tool::QuickSelection,
     Tool::Crop,
@@ -55,6 +57,8 @@ const TOOLS: &[Tool] = &[
 const TOOL_GLYPHS: &[&str] = &[
     "arrow.move",      // Move
     "photo.marquee",   // Marquee
+    "photo.marquee",   // Single Row Marquee
+    "photo.marquee",   // Single Column Marquee
     "photo.lasso",     // Lasso
     "edit.wand",       // Quick Selection
     "edit.crop",       // Crop
@@ -66,7 +70,22 @@ const TOOL_GLYPHS: &[&str] = &[
     "edit.grab",       // Hand
     "nav.search",      // Zoom
 ];
-const TOOL_NAMES: &[&str] = &["Move", "Marquee", "Lasso", "Quick Selection", "Crop", "Brush", "Eraser", "Gradient", "Type", "Pen", "Hand", "Zoom"];
+const TOOL_NAMES: &[&str] = &[
+    "Move",
+    "Marquee",
+    "Single Row Marquee",
+    "Single Column Marquee",
+    "Lasso",
+    "Quick Selection",
+    "Crop",
+    "Brush",
+    "Eraser",
+    "Gradient",
+    "Type",
+    "Pen",
+    "Hand",
+    "Zoom",
+];
 
 fn tool_index(tool: Tool) -> usize {
     TOOLS.iter().position(|&t| t == tool).unwrap_or(0)
@@ -1321,6 +1340,16 @@ mod tests {
         assert_eq!(s.app.active_tool, Tool::Brush);
     }
 
+    /// The Single Row / Single Column Marquee live in the palette after the
+    /// Rectangular Marquee and stay selectable; the tables stay aligned.
+    #[test]
+    fn single_line_marquees_are_palette_reachable() {
+        assert_eq!(TOOLS.len(), TOOL_GLYPHS.len());
+        assert_eq!(TOOLS.len(), TOOL_NAMES.len());
+        assert_eq!(tool_index(Tool::SingleRowMarquee), 2);
+        assert_eq!(tool_index(Tool::SingleColumnMarquee), 3);
+    }
+
     /// Ctrl+Tab and Ctrl+Shift+Tab cycle the open documents in order,
     /// wrapping at either end — Photoshop's document switching.
     #[test]
@@ -1470,8 +1499,8 @@ mod tests {
         s.layout(&mut LayoutContext { hot: &mut hot, scale: 1.0 }, r);
         s.canvas.doc = Some((400, 300));
         s.canvas.zoom = 0.5;
-        // Zoom is the palette's last cell (index 11): row pitch is 40pt.
-        let at = Vec2::new(22.0, 488.0);
+        // Zoom is the palette's last cell (index 13): row pitch is 40pt.
+        let at = Vec2::new(22.0, 568.0);
         let press = WidgetEvent::PointerPressed { button: martensite::core::PointerButton::Primary, position: at, count: 2 };
         s.event(&mut EventContext { event: &press, bounds: r, scale: 1.0 });
         assert_eq!(s.canvas.zoom, 1.0, "the Zoom tool's double-click is 100%");
@@ -1489,8 +1518,8 @@ mod tests {
         s.layout(&mut LayoutContext { hot: &mut hot, scale: 1.0 }, r);
         s.canvas.doc = Some((4000, 3000));
         s.canvas.zoom = 1.0;
-        // Hand is one row above Zoom (index 10).
-        let press = WidgetEvent::PointerPressed { button: martensite::core::PointerButton::Primary, position: Vec2::new(22.0, 448.0), count: 2 };
+        // Hand is one row above Zoom (index 12).
+        let press = WidgetEvent::PointerPressed { button: martensite::core::PointerButton::Primary, position: Vec2::new(22.0, 528.0), count: 2 };
         let mut cx = EventContext { event: &press, bounds: r, scale: 1.0 };
         s.event(&mut cx);
         assert!(s.canvas.zoom < 1.0, "a 4000px doc must shrink to fit");

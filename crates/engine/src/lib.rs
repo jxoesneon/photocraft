@@ -161,6 +161,8 @@ pub type Engine = Session;
 pub enum Tool {
     Move,
     Marquee,
+    SingleRowMarquee,
+    SingleColumnMarquee,
     Lasso,
     QuickSelection,
     Crop,
