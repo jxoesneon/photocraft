@@ -1319,11 +1319,14 @@ fn build_palette(selected: usize) -> ToolPalette {
 /// Does `spec` (`"Shift+Cmd+Z"`-style) describe `key` under these modifiers?
 /// The caller already requires Ctrl-or-Meta held (the `Cmd` leg).
 fn shortcut_matches(spec: &str, key: &str, shift: bool, alt: bool) -> bool {
-    let parts: Vec<&str> = spec.split('+').collect();
-    let Some(&tail) = parts.last() else {
-        return false;
+    // A trailing '+' names the Plus key (both "Cmd+" and "Cmd++" bind it);
+    // everything before it is the modifier list.
+    let (prefix, tail) = if let Some(without_plus) = spec.strip_suffix('+') {
+        (without_plus.strip_suffix('+').unwrap_or(without_plus), "+")
+    } else {
+        spec.rsplit_once('+').unwrap_or(("", spec))
     };
-    let mods = &parts[..parts.len().saturating_sub(1)];
+    let mods: &[&str] = if prefix.is_empty() { &[] } else { &prefix.split('+').collect::<Vec<_>>() };
     let mut need_shift = false;
     let mut need_alt = false;
     let mut need_cmd = false;
@@ -1614,6 +1617,12 @@ mod tests {
         assert!(!shortcut_matches("Shift+Cmd+Z", "z", false, false));
         assert!(shortcut_matches("Alt+Cmd+I", "i", false, true));
         assert!(!shortcut_matches("N", "n", false, false));
+        // '+' is a key name as well as the separator (#3006).
+        assert!(shortcut_matches("Cmd++", "+", false, false));
+        assert!(shortcut_matches("Cmd+", "+", false, false));
+        assert!(shortcut_matches("Cmd+Shift++", "+", true, false));
+        assert!(!shortcut_matches("Cmd+Z+", "+", false, false));
+        assert!(!shortcut_matches("Cmd+Typo+Z", "z", false, false));
     }
 
     #[test]
