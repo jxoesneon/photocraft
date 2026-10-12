@@ -386,7 +386,11 @@ impl Widget for CanvasArea {
                         let p = self.to_canvas(*position);
                         self.marks.push((p, p, self.fg));
                     }
-                    Tool::Zoom => self.zoom_at(1.25, *position),
+                    // A Zoom click walks the ladder like ⌘+/⌘−; Alt inverts
+                    // to zoom out (upstream d67e28c1). The latched-Alt
+                    // leg upstream (Window › Modifier Keys) has no surface
+                    // here yet.
+                    Tool::Zoom => self.zoom_stepped(if self.alt { -1 } else { 1 }, *position),
                     _ => {}
                 }
                 EventResponse::RequestRepaint
@@ -1871,6 +1875,26 @@ mod tests {
         s.drain_seams();
         assert_eq!(s.canvas.pan, [0.0, 0.0], "Fill Screen centres");
         assert!(s.canvas.zoom * 300.0 >= s.canvas_r.height() - 1.0, "the document fills the canvas height");
+    }
+
+    /// A Zoom click steps the ladder; Alt+click inverts it to zoom out
+    /// (upstream d67e28c1 — held Alt; the latched leg has no surface here).
+    #[test]
+    fn alt_click_with_the_zoom_tool_zooms_out() {
+        let mut s = shell();
+        let r = Rect::new(0.0, 0.0, 1280.0, 800.0);
+        let mut hot = HotNode { bounds: r, ..HotNode::default() };
+        s.layout(&mut LayoutContext { hot: &mut hot, scale: 1.0 }, r);
+        s.canvas.doc = Some((400, 300));
+        s.app.set_tool(Tool::Zoom);
+        s.canvas.tool = Tool::Zoom;
+        let at = Vec2::new(s.canvas_r.min_x() + s.canvas_r.width() / 2.0, s.canvas_r.min_y() + s.canvas_r.height() / 2.0);
+        let press = WidgetEvent::PointerPressed { button: PointerButton::Primary, position: at, count: 1 };
+        s.event(&mut EventContext { event: &press, bounds: r, scale: 1.0 });
+        assert_eq!(s.canvas.zoom, 2.0, "a plain Zoom click steps up the ladder");
+        s.canvas.alt = true;
+        s.event(&mut EventContext { event: &press, bounds: r, scale: 1.0 });
+        assert_eq!(s.canvas.zoom, 1.0, "Alt+click zooms back out a rung");
     }
 
     /// Double-clicking the Zoom cell selects it and zooms to 100% — the
