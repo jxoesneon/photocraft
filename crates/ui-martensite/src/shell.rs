@@ -5,8 +5,10 @@
 
 use glam::Vec2;
 use martensite::core::{
-    DropPayload, EventContext, EventResponse, HotNode, ImageData, LayoutConstraints, LayoutContext, PaintContext, Rect, TokenKey, Widget, WidgetEvent,
+    DropPayload, EventContext, EventResponse, HotNode, ImageData, LayoutConstraints, LayoutContext, OverlayLayer, PaintContext, PointerButton, Rect, TokenKey,
+    Widget, WidgetEvent,
 };
+use martensite::widgets::context_menu::ContextMenu;
 use martensite::widgets::menu::MenuItem;
 use martensite::widgets::menu_bar::MenuBar;
 use martensite::widgets::status_bar::StatusBar;
@@ -217,6 +219,12 @@ struct CanvasArea {
     /// Modifier state at the last key event — Alt+wheel is the zoom leg.
     alt: bool,
     shift: bool,
+    /// Preferences › Tools › Zoom Clicked Point to Center: the view menu's
+    /// Zoom In/Out centre the pressed point instead of keeping it in place.
+    zoom_to_center: bool,
+    /// Right-click seam: the press position waits here for the shell to open
+    /// the view menu (Zoom and Hand tools only, upstream #3255).
+    context_at: Option<Vec2>,
     fg: [u8; 4],
     bounds: Rect,
     scale: f32,
@@ -238,6 +246,8 @@ impl CanvasArea {
             pinch_zooms: true,
             alt: false,
             shift: false,
+            zoom_to_center: false,
+            context_at: None,
             composite: None,
             composite_for: None,
             histogram: Vec::new(),
@@ -265,6 +275,69 @@ impl CanvasArea {
         self.pan[0] = (cursor.x - cx) / self.scale - ((cursor.x - cx) / self.scale - self.pan[0]) * ratio;
         self.pan[1] = (cursor.y - cy) / self.scale - ((cursor.y - cy) / self.scale - self.pan[1]) * ratio;
         self.zoom = new;
+    }
+
+    /// Photoshop's zoom ladder — the steps ⌘+ / ⌘− walk (upstream
+    /// `canvas::zoom_step`).
+    fn zoom_step(z: f32, dir: i32) -> f32 {
+        const STEPS: [f32; 22] =
+            [0.01, 0.02, 0.03, 0.05, 0.0667, 0.1, 0.125, 0.1667, 0.25, 0.333, 0.5, 0.6667, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 8.0, 12.0, 16.0, 32.0];
+        if dir > 0 {
+            STEPS.iter().copied().find(|s| *s > z * 1.001).unwrap_or(32.0)
+        } else {
+            STEPS.iter().rev().copied().find(|s| *s < z * 0.999).unwrap_or(0.01)
+        }
+    }
+
+    /// The view menu's Zoom In/Out: a ladder step about the pressed point.
+    /// With Zoom Clicked Point to Center the point moves to the canvas
+    /// centre instead (upstream `choose_view`, prefs.tools).
+    fn zoom_stepped(&mut self, dir: i32, at: Vec2) {
+        let next = Self::zoom_step(self.zoom, dir).clamp(0.02, 64.0);
+        if self.zoom_to_center {
+            let d = self.to_canvas(at);
+            self.zoom = next;
+            // `to_canvas(centre) == d` when pan = -d·zoom.
+            self.pan = [-d.x * next, -d.y * next];
+        } else if self.zoom > 0.0 {
+            self.zoom_at(next / self.zoom, at);
+        }
+    }
+
+    /// A fixed zoom — the menu's 100%, 200% and Print Size rows keep the
+    /// centred point (pan) as is, like the upstream `v.zoom = z` writes.
+    fn set_zoom(&mut self, z: f32) {
+        self.zoom = z.clamp(0.02, 64.0);
+    }
+
+    /// Fill Screen: centre the document at the zoom that covers the canvas —
+    /// one axis may overflow (upstream `fill_view`, no 100% cap or margin).
+    fn fill_doc(&mut self) {
+        let Some((w, h)) = self.doc else { return };
+        let (bw, bh) = (self.bounds.width(), self.bounds.height());
+        if w == 0 || h == 0 || bw <= 0.0 || bh <= 0.0 {
+            return;
+        }
+        let denom = self.scale.max(0.01);
+        self.zoom = (bw / (w as f32 * denom)).max(bh / (h as f32 * denom)).clamp(0.02, 64.0);
+        self.pan = [0.0, 0.0];
+    }
+
+    /// The document's window-space rect — the view menu opens only over the
+    /// image; on the pasteboard the press belongs to nothing (yet).
+    fn doc_rect(&self) -> Option<Rect> {
+        let (w, h) = self.doc?;
+        let c = Vec2::new(
+            self.bounds.min_x() + self.bounds.width() / 2.0 + self.pan[0] * self.scale,
+            self.bounds.min_y() + self.bounds.height() / 2.0 + self.pan[1] * self.scale,
+        );
+        let half = Vec2::new(w as f32 * self.zoom * self.scale / 2.0, h as f32 * self.zoom * self.scale / 2.0);
+        Some(Rect::new(c.x - half.x, c.y - half.y, c.x + half.x, c.y + half.y))
+    }
+
+    /// The right-click position the shell turns into the view menu.
+    fn take_context_press(&mut self) -> Option<Vec2> {
+        self.context_at.take()
     }
 
     /// The doc `w`×`h` centred at a zoom that fills the canvas with a small
@@ -299,6 +372,12 @@ impl Widget for CanvasArea {
 
     fn event(&mut self, cx: &mut EventContext) -> EventResponse {
         match cx.event {
+            WidgetEvent::PointerPressed { position, button: PointerButton::Secondary, .. } => {
+                // Right-click: the shell may open the Zoom/Hand view menu;
+                // the press never starts a stroke or drag.
+                self.context_at = Some(*position);
+                EventResponse::RequestRepaint
+            }
             WidgetEvent::PointerPressed { position, .. } => {
                 self.last = Some(*position);
                 match self.tool {
@@ -483,6 +562,15 @@ pub struct PhotoCraftShell {
     /// Commands running in the background — `tick` polls them through
     /// `Session::poll_jobs` and shows `"{label} NN%"` while they run.
     running_jobs: Vec<JobId>,
+    /// The Zoom/Hand right-click view menu — popup machinery only, never a
+    /// child: the shell opens it from the canvas's `context_at` seam
+    /// (`OverlayAnchor::Pointer`, so no trigger bounds are needed).
+    view_menu: ContextMenu,
+    /// Where the view menu opened — Zoom In/Out step about this point.
+    view_menu_at: Option<Vec2>,
+    /// The active document's resolution — the Print Size row assumes a
+    /// 72-ppi screen (upstream `view.printSize`).
+    doc_dpi: f32,
 }
 
 impl PhotoCraftShell {
@@ -527,6 +615,9 @@ impl PhotoCraftShell {
             notice_auto_hide: true,
             notice_secs: 6,
             running_jobs: Vec::new(),
+            view_menu: view_menu(),
+            view_menu_at: None,
+            doc_dpi: 72.0,
         }
     }
 
@@ -844,6 +935,39 @@ impl PhotoCraftShell {
             }
         }
         while self.statusbar.take_activated().is_some() {}
+        // Right-click on the canvas opens the Zoom/Hand view menu — only
+        // over the image (the pasteboard keeps its own menu upstream; here
+        // a press outside the document does nothing).
+        while let Some(pos) = self.canvas.take_context_press() {
+            if matches!(self.app.active_tool, Tool::Zoom | Tool::Hand) && self.canvas.doc_rect().is_some_and(|r| r.contains(pos)) {
+                self.view_menu.open_at(pos);
+                self.view_menu_at = Some(pos);
+                changed = true;
+            }
+        }
+        while let Some(path) = self.view_menu.take_activated() {
+            // Rows: 0 Zoom In, 1 Zoom Out, 3 Fit on Screen, 4 Fill Screen,
+            // 6 100%, 7 200%, 8 Print Size (2 and 5 are separators).
+            let anchor = self
+                .view_menu_at
+                .take()
+                .unwrap_or_else(|| Vec2::new(self.canvas_r.min_x() + self.canvas_r.width() / 2.0, self.canvas_r.min_y() + self.canvas_r.height() / 2.0));
+            match path.first() {
+                Some(0) => self.canvas.zoom_stepped(1, anchor),
+                Some(1) => self.canvas.zoom_stepped(-1, anchor),
+                Some(3) => {
+                    if let Some((w, h)) = self.canvas.doc {
+                        self.canvas.fit_doc(w, h);
+                    }
+                }
+                Some(4) => self.canvas.fill_doc(),
+                Some(6) => self.canvas.set_zoom(1.0),
+                Some(7) => self.canvas.set_zoom(2.0),
+                Some(8) => self.canvas.set_zoom(72.0 / self.doc_dpi.max(1.0)),
+                _ => {}
+            }
+            changed = true;
+        }
         changed
     }
 
@@ -1029,6 +1153,7 @@ impl Widget for PhotoCraftShell {
         // ruler unit and its resolution, like Photoshop's Doc: readout.
         let dims = match guard.active() {
             Some(d) => {
+                self.doc_dpi = d.doc.resolution_dpi.max(1.0);
                 let u = &guard.prefs().units_and_rulers;
                 let dpi = f64::from(d.doc.resolution_dpi);
                 let (w, h) = (f64::from(d.doc.size.width), f64::from(d.doc.size.height));
@@ -1043,6 +1168,7 @@ impl Widget for PhotoCraftShell {
         // Wheel navigation follows the Enhanced Controls/General prefs.
         self.canvas.zoom_with_wheel = prefs.general.zoom_with_scroll_wheel;
         self.canvas.pinch_zooms = prefs.enhanced_controls.zoom_with_trackpad_pinch;
+        self.canvas.zoom_to_center = prefs.tools.zoom_clicked_point_to_center;
         // Background commands: apply finished jobs and read the front one's
         // progress for the status bar ("Saving NN%").
         let events = guard.poll_jobs();
@@ -1263,6 +1389,12 @@ impl Widget for PhotoCraftShell {
         }
     }
 
+    fn sync_overlay(&mut self, overlay: &mut OverlayLayer) {
+        // The view menu is a field, not a child — the arena recurses into
+        // children only, so the shell syncs its popup itself.
+        self.view_menu.sync_overlay(overlay);
+    }
+
     fn child_count(&self) -> usize {
         5
     }
@@ -1349,6 +1481,27 @@ fn build_palette(selected: usize) -> ToolPalette {
         palette = palette.tool(ToolItem::new(TOOL_GLYPHS[i], *name));
     }
     palette.selected(selected)
+}
+
+/// The Zoom and Hand tools' canvas context menu — Photoshop's row order
+/// (upstream `VIEW_MENU`): the zoom steps, the fit rows, then the fixed
+/// zooms. `Text` is only the required wrapped child; the shell drives the
+/// popup directly and the child never lays out or sees an event.
+fn view_menu() -> ContextMenu {
+    ContextMenu::new(
+        martensite::widgets::text::Text::new(""),
+        vec![
+            MenuItem::action("Zoom In"),
+            MenuItem::action("Zoom Out"),
+            MenuItem::separator(),
+            MenuItem::action("Fit on Screen"),
+            MenuItem::action("Fill Screen"),
+            MenuItem::separator(),
+            MenuItem::action("100%"),
+            MenuItem::action("200%"),
+            MenuItem::action("Print Size"),
+        ],
+    )
 }
 
 /// Does `spec` (`"Shift+Cmd+Z"`-style) describe `key` under these modifiers?
@@ -1642,6 +1795,82 @@ mod tests {
         s.canvas.alt = true;
         s.event(&mut EventContext { event: &scroll, bounds: r, scale: 1.0 });
         assert!((s.canvas.zoom - 1.1).abs() < 1e-4, "Alt+wheel is the zoom leg");
+    }
+
+    /// Right-clicking the image with the Zoom or Hand tool opens the view
+    /// menu (upstream #3255). Other tools and the pasteboard keep it closed.
+    #[test]
+    fn zoom_and_hand_right_click_opens_the_view_menu() {
+        let mut s = shell();
+        let r = Rect::new(0.0, 0.0, 1280.0, 800.0);
+        let mut hot = HotNode { bounds: r, ..HotNode::default() };
+        s.layout(&mut LayoutContext { hot: &mut hot, scale: 1.0 }, r);
+        s.canvas.doc = Some((400, 300));
+        let inside = Vec2::new(s.canvas_r.min_x() + s.canvas_r.width() / 2.0, s.canvas_r.min_y() + s.canvas_r.height() / 2.0);
+        let press = WidgetEvent::PointerPressed { button: PointerButton::Secondary, position: inside, count: 1 };
+        s.event(&mut EventContext { event: &press, bounds: r, scale: 1.0 });
+        assert!(!s.view_menu.is_open(), "the Move tool has no view menu");
+        for tool in [Tool::Zoom, Tool::Hand] {
+            s.app.set_tool(tool);
+            s.event(&mut EventContext { event: &press, bounds: r, scale: 1.0 });
+            assert!(s.view_menu.is_open(), "{tool:?} opens the view menu");
+            s.view_menu.close();
+            assert_eq!(s.view_menu_at, Some(inside), "{tool:?} anchors the menu at the press");
+        }
+        // The pasteboard — inside the canvas, outside the document — stays inert.
+        s.app.set_tool(Tool::Zoom);
+        let pasteboard = Vec2::new(s.canvas_r.min_x() + 4.0, s.canvas_r.min_y() + 4.0);
+        let press = WidgetEvent::PointerPressed { button: PointerButton::Secondary, position: pasteboard, count: 1 };
+        s.event(&mut EventContext { event: &press, bounds: r, scale: 1.0 });
+        assert!(!s.view_menu.is_open(), "outside the image the press opens nothing");
+        // A primary click never reaches the menu seam.
+        let press = WidgetEvent::PointerPressed { button: PointerButton::Primary, position: inside, count: 1 };
+        s.event(&mut EventContext { event: &press, bounds: r, scale: 1.0 });
+        assert!(!s.view_menu.is_open(), "a primary click is the Zoom gesture");
+        assert!(s.canvas.context_at.is_none(), "no seam was recorded");
+    }
+
+    /// Zoom In steps one ladder rung about the pressed point; the fixed rows
+    /// write their zoom and Fill Screen covers the canvas.
+    #[test]
+    fn the_view_menu_rows_drive_the_canvas() {
+        let mut s = shell();
+        let r = Rect::new(0.0, 0.0, 1280.0, 800.0);
+        let mut hot = HotNode { bounds: r, ..HotNode::default() };
+        s.layout(&mut LayoutContext { hot: &mut hot, scale: 1.0 }, r);
+        s.canvas.doc = Some((400, 300));
+        s.app.set_tool(Tool::Zoom);
+        let inside = Vec2::new(s.canvas_r.min_x() + s.canvas_r.width() / 2.0 - 100.0, s.canvas_r.min_y() + s.canvas_r.height() / 2.0);
+        let press = WidgetEvent::PointerPressed { button: PointerButton::Secondary, position: inside, count: 1 };
+        s.event(&mut EventContext { event: &press, bounds: r, scale: 1.0 });
+        assert!(s.view_menu.is_open());
+        // Zoom In: 1.0 → 2.0 on the ladder, about the clicked point.
+        s.view_menu.activate_for_test(0);
+        s.drain_seams();
+        assert_eq!(s.canvas.zoom, 2.0, "one Zoom In rung");
+        assert_ne!(s.canvas.pan, [0.0, 0.0], "the step is about the pressed point");
+        s.view_menu_at = None;
+        // Zoom Out: back down one rung.
+        s.view_menu.activate_for_test(1);
+        s.drain_seams();
+        assert_eq!(s.canvas.zoom, 1.0, "Zoom Out lands back on the ladder");
+        // Separators are inert.
+        s.view_menu.activate_for_test(2);
+        assert!(s.view_menu.take_activated().is_none(), "a separator never activates");
+        // 200% and Print Size (72/72 ppi = 1.0) are fixed zooms.
+        s.view_menu.activate_for_test(7);
+        s.drain_seams();
+        assert_eq!(s.canvas.zoom, 2.0, "the 200% row");
+        s.doc_dpi = 144.0;
+        s.view_menu.activate_for_test(8);
+        s.drain_seams();
+        assert_eq!(s.canvas.zoom, 0.5, "Print Size is 72/dpi");
+        // Fill Screen covers the canvas — the doc's long axis reaches the edge.
+        s.canvas.doc = Some((8000, 300));
+        s.view_menu.activate_for_test(4);
+        s.drain_seams();
+        assert_eq!(s.canvas.pan, [0.0, 0.0], "Fill Screen centres");
+        assert!(s.canvas.zoom * 300.0 >= s.canvas_r.height() - 1.0, "the document fills the canvas height");
     }
 
     /// Double-clicking the Zoom cell selects it and zooms to 100% — the
