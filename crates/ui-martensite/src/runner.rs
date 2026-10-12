@@ -143,6 +143,10 @@ struct Runner {
     /// Window/GPU bring-up failure, readable after `run_app` returns
     /// (`(message, gpu_init)`).
     launch_error: Arc<Mutex<Option<(String, bool)>>>,
+    /// The shell writes the Photoshop-style window title here each tick
+    /// ("name * - Saving NN%"); the runner applies it when it changes.
+    title_sink: Arc<Mutex<String>>,
+    last_title: String,
 }
 
 impl Runner {
@@ -163,6 +167,8 @@ impl Runner {
             last_frame: Instant::now(),
             started: false,
             launch_error: Arc::new(Mutex::new(None)),
+            title_sink: Arc::new(Mutex::new(String::new())),
+            last_title: String::new(),
         }
     }
 
@@ -186,6 +192,7 @@ impl Runner {
             shell.set_control(rx, self.cfg.file_reader.clone(), self.cfg.command_authorize.clone());
         }
         shell.set_drains(std::mem::take(&mut self.cfg.drains));
+        shell.set_title_sink(Arc::clone(&self.title_sink));
         for notice in self.cfg.notices.drain(..) {
             shell.app.pending_notices.push(notice);
         }
@@ -237,6 +244,13 @@ impl Runner {
             guard.build_paint_list(root, &mut list);
             drop(guard);
             let Some(window) = &self.window else { return };
+            // The shell's tick rewrote the title cell — apply it (doc name,
+            // dirty marker, a running job's " - Saving NN%").
+            let title = self.title_sink.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone();
+            if !title.is_empty() && title != self.last_title {
+                window.set_title(&title);
+                self.last_title = title;
+            }
             let (Some(gpu), Some(surface), Some(orchestrator)) = (&self.gpu, &mut self.surface, &mut self.orchestrator) else {
                 return;
             };

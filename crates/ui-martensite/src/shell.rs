@@ -575,6 +575,9 @@ pub struct PhotoCraftShell {
     /// The active document's resolution — the Print Size row assumes a
     /// 72-ppi screen (upstream `view.printSize`).
     doc_dpi: f32,
+    /// The window title the runner applies — the shell writes "name *" plus
+    /// a running job's " - {label} NN%" (upstream tab titles, #3389).
+    title_sink: Option<std::sync::Arc<std::sync::Mutex<String>>>,
 }
 
 impl PhotoCraftShell {
@@ -622,7 +625,13 @@ impl PhotoCraftShell {
             view_menu: view_menu(),
             view_menu_at: None,
             doc_dpi: 72.0,
+            title_sink: None,
         }
+    }
+
+    /// Installs the shared cell the runner reads the window title from.
+    pub fn set_title_sink(&mut self, sink: std::sync::Arc<std::sync::Mutex<String>>) {
+        self.title_sink = Some(sink);
     }
 
     /// Installs the control-channel queue + the workspace-sandboxed file read it
@@ -1169,6 +1178,8 @@ impl Widget for PhotoCraftShell {
         let prefs = guard.prefs();
         let (auto_hide, hide_secs) = (prefs.interface.notification_auto_hide, prefs.interface.notification_duration_seconds);
         let beep_when_done = prefs.general.beep_when_done;
+        // The window title: Photoshop's "name *", like the upstream tab.
+        let title_doc = guard.active().map(|d| (d.doc.name.clone(), d.is_dirty()));
         // Wheel navigation follows the Enhanced Controls/General prefs.
         self.canvas.zoom_with_wheel = prefs.general.zoom_with_scroll_wheel;
         self.canvas.pinch_zooms = prefs.enhanced_controls.zoom_with_trackpad_pinch;
@@ -1205,11 +1216,30 @@ impl Widget for PhotoCraftShell {
             repaint = true;
         }
         // A running job pins its progress as the temporary status (kept alive
-        // by re-stamping, so the notice auto-hide cannot swallow it).
-        if let Some(text) = progress {
-            self.statusbar.temporary(text);
+        // by re-stamping, so the notice auto-hide cannot swallow it) — and on
+        // the window title, like the upstream tab's "name * - Saving NN%".
+        if let Some(text) = &progress {
+            self.statusbar.temporary(text.clone());
             self.temporary_at = Some(std::time::Instant::now());
             repaint = true;
+        }
+        if let Some(sink) = &self.title_sink {
+            let mut title = match &title_doc {
+                Some((name, dirty)) => format!("{name}{}", if *dirty { " *" } else { "" }),
+                None => String::new(),
+            };
+            if let Some(p) = &progress {
+                if !title.is_empty() {
+                    title.push_str(" - ");
+                }
+                title.push_str(p);
+            }
+            if title.is_empty() {
+                title.push_str("PhotoCraft");
+            } else {
+                title.push_str(" - PhotoCraft");
+            }
+            *sink.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = title;
         }
         if dims != self.dims {
             self.dims.clone_from(&dims);
@@ -1762,6 +1792,34 @@ mod tests {
         assert!(s.running_jobs.is_empty(), "the job ended");
         assert_eq!(s.statusbar.current_message(), "Fake Job");
         assert!(s.app.is_dirty, "a finished job invalidates the frame");
+    }
+
+    /// The window title is Photoshop's "name *", gaining " - {label} NN%"
+    /// while a background job reports progress (upstream #3389).
+    #[test]
+    fn the_title_carries_the_doc_name_and_job_progress() {
+        let mut s = shell();
+        let sink = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
+        s.set_title_sink(std::sync::Arc::clone(&sink));
+        {
+            let mut g = s.app.engine.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            g.execute("file.new", serde_json::json!({"name": "Poster", "width": 16, "height": 24})).expect("file.new");
+            g.execute("select.all", serde_json::json!({})).expect("select.all");
+        }
+        s.tick(std::time::Duration::from_millis(16));
+        assert_eq!(*sink.lock().unwrap_or_else(std::sync::PoisonError::into_inner), "Poster * - PhotoCraft");
+        let id = {
+            let mut g = s.app.engine.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            match g.start_job("test.fake", serde_json::json!({}), "Saving", false, |_| Ok(42), |_, v| Ok(serde_json::json!(v))).expect("start_job") {
+                Started::Job(id) => id,
+                Started::Done(_) => return,
+            }
+        };
+        s.running_jobs.push(id);
+        s.tick(std::time::Duration::from_millis(16));
+        let title = sink.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone();
+        assert!(title.starts_with("Poster *"), "the doc name and dirty marker lead: {title}");
+        assert!(title.ends_with(" - PhotoCraft"), "the app name trails: {title}");
     }
 
     /// Enhanced Controls › Zoom with Trackpad Pinch: the magnification delta
