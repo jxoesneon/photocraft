@@ -156,7 +156,14 @@ fn drop_file_opens_a_document() {
     ui.router.dispatch_drop_event(&mut ui.arena, ui.root, ui.win, &DropEvent::Entered { position: Some(Vec2::new(700.0, 400.0)), action: DropAction::Copy });
     ui.router.dispatch_drop_event(&mut ui.arena, ui.root, ui.win, &DropEvent::Dropped { action: DropAction::Copy });
     ui.router.dispatch_drop_payload(&mut ui.arena, ui.root, ui.win, DropPayload::Files(vec![path.clone()]));
-    ui.frame();
+    // The open runs on a worker; pump frames until poll_jobs applies it.
+    for _ in 0..2000 {
+        ui.frame();
+        if ui.docs() == 2 {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(2));
+    }
 
     assert_eq!(ui.docs(), 2, "dropping a PNG must open it as a second document");
     let _ = std::fs::remove_file(&path);

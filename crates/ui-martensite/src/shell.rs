@@ -11,6 +11,7 @@ use martensite::widgets::menu::MenuItem;
 use martensite::widgets::menu_bar::MenuBar;
 use martensite::widgets::status_bar::StatusBar;
 use martensite::widgets::tool_palette::{ToolItem, ToolPalette};
+use photocraft_engine::jobs::{JobId, JobOutcome, OpenSource, Started};
 use photocraft_engine::{Engine, Tool};
 
 use photocraft_doc::{Layer, LayerContent};
@@ -18,7 +19,7 @@ use photocraft_engine::channel_cmds::{self, ChannelTarget};
 use serde_json::json;
 
 use crate::PhotocraftApp;
-use crate::commands::{CommandExecutor, EngineExecutor};
+use crate::commands::EngineExecutor;
 use crate::dock::{ChannelRowModel, CharModel, CompRowModel, DockCmd, DockModel, LayerHeader, LayerRowModel, ParaModel, PathRowModel, RightDock};
 
 /// `PaintList` rect primitives take `kurbo` rects; node bounds are
@@ -449,6 +450,9 @@ pub struct PhotoCraftShell {
     temporary_at: Option<std::time::Instant>,
     notice_auto_hide: bool,
     notice_secs: u32,
+    /// Commands running in the background — `tick` polls them through
+    /// `Session::poll_jobs` and shows `"{label} NN%"` while they run.
+    running_jobs: Vec<JobId>,
 }
 
 impl PhotoCraftShell {
@@ -492,6 +496,7 @@ impl PhotoCraftShell {
             temporary_at: None,
             notice_auto_hide: true,
             notice_secs: 6,
+            running_jobs: Vec::new(),
         }
     }
 
@@ -516,9 +521,24 @@ impl PhotoCraftShell {
 
     /// Runs one engine command; the outcome lands on the status bar.
     fn run_command(&mut self, id: &'static str) {
+        self.start_command(id, serde_json::json!({}));
+    }
+
+    /// Interactive dispatch: job-capable commands run in the background
+    /// (`Session::start`) so the window keeps drawing; `tick` reports their
+    /// progress and outcome. The control-channel sandbox gate does not apply
+    /// to menu and dock clicks.
+    fn start_command(&mut self, id: &str, params: serde_json::Value) {
         let engine = self.app.engine.clone();
-        match self.executor.execute(&mut self.app, &engine, id, &serde_json::json!({})) {
-            Ok(_) => self.pending_status = Some(id.to_string()),
+        let mut session = engine.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        match session.start(id, params) {
+            Ok(Started::Done(_)) => {
+                self.app.is_dirty = true;
+                self.pending_status = Some(id.to_string());
+            }
+            Ok(Started::Job(job)) => {
+                self.running_jobs.push(job);
+            }
             Err(e) => self.pending_status = Some(format!("{id}: {e}")),
         }
     }
@@ -526,11 +546,7 @@ impl PhotoCraftShell {
     /// Runs a command a dock panel emitted — same seam as the menus, but the
     /// id and params arrive as data.
     fn run_dock_command(&mut self, id: &str, params: serde_json::Value) {
-        let engine = self.app.engine.clone();
-        match self.executor.execute(&mut self.app, &engine, id, &params) {
-            Ok(_) => self.pending_status = Some(id.to_string()),
-            Err(e) => self.pending_status = Some(format!("{id}: {e}")),
-        }
+        self.start_command(id, params);
     }
 
     /// Snapshots the engine into the model the dock panels paint — the dock
@@ -924,10 +940,14 @@ impl PhotoCraftShell {
             _ => None,
         };
         let Some(path) = path else { return EventResponse::Ignored };
+        let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "document".to_string());
         let engine = self.app.engine.clone();
         let mut guard = engine.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        match self.executor.open_document(&mut guard, &path) {
-            Ok(title) => self.pending_status = Some(format!("Opened {title}")),
+        // Files open in the background with progress (per layer for PSD);
+        // `tick` reports the outcome on the status bar.
+        match guard.start_open(&name, OpenSource::Path(path.to_string_lossy().into_owned())) {
+            Ok(Started::Done(_)) => self.pending_status = Some(format!("Opened {name}")),
+            Ok(Started::Job(job)) => self.running_jobs.push(job),
             Err(e) => self.pending_status = Some(format!("Open failed: {e}")),
         }
         EventResponse::RequestRepaint
@@ -968,7 +988,7 @@ impl Widget for PhotoCraftShell {
         let mut repaint = self.drain_seams();
         // Sync engine → view state that changed outside input handling.
         let engine = self.app.engine.clone();
-        let guard = engine.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut guard = engine.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let docs = guard.documents().len();
         // `Arc<Document>` + revision: the composite cache key. The Arc
         // clones under the lock so the flatten below runs unlocked.
@@ -989,9 +1009,45 @@ impl Widget for PhotoCraftShell {
         };
         let prefs = guard.prefs();
         let (auto_hide, hide_secs) = (prefs.interface.notification_auto_hide, prefs.interface.notification_duration_seconds);
+        let beep_when_done = prefs.general.beep_when_done;
+        // Background commands: apply finished jobs and read the front one's
+        // progress for the status bar ("Saving NN%").
+        let events = guard.poll_jobs();
+        let progress = self.running_jobs.iter().find_map(|&id| guard.job(id)).map(|info| match info.progress {
+            p if p > 0.0 => format!("{} {}%", info.label, (p * 100.0).round() as u32),
+            _ => info.label.clone(),
+        });
         drop(guard);
         self.notice_auto_hide = auto_hide;
         self.notice_secs = hide_secs;
+        for event in events {
+            self.running_jobs.retain(|&j| j != event.id);
+            match event.outcome {
+                JobOutcome::Done(_) => {
+                    self.app.is_dirty = true;
+                    // Preferences ▸ General ▸ Beep When Done: the terminal
+                    // bell (upstream's non-Windows cue).
+                    if beep_when_done {
+                        use std::io::Write as _;
+                        let _ = std::io::stdout().write_all(b"\x07").and_then(|()| std::io::stdout().flush());
+                    }
+                    self.pending_status = Some(event.label);
+                }
+                JobOutcome::Failed(err) => {
+                    self.app.is_dirty = true;
+                    self.pending_status = Some(format!("{}: {err}", event.label));
+                }
+                JobOutcome::Cancelled => self.pending_status = Some(format!("Cancelled {}", event.label)),
+            }
+            repaint = true;
+        }
+        // A running job pins its progress as the temporary status (kept alive
+        // by re-stamping, so the notice auto-hide cannot swallow it).
+        if let Some(text) = progress {
+            self.statusbar.temporary(text);
+            self.temporary_at = Some(std::time::Instant::now());
+            repaint = true;
+        }
         if dims != self.dims {
             self.dims.clone_from(&dims);
             self.statusbar.set_message(dims);
@@ -1486,6 +1542,31 @@ mod tests {
         s.temporary_at = std::time::Instant::now().checked_sub(std::time::Duration::from_secs(60));
         s.tick(std::time::Duration::from_millis(16));
         assert!(s.statusbar.current_message().contains("16 px x 24 px"), "the readout returns");
+    }
+
+    /// A background job's progress pins the status bar while it runs and its
+    /// label lands there when it finishes — Photoshop's "Saving NN%".
+    #[test]
+    fn a_background_job_reports_its_progress_and_outcome() {
+        let mut s = shell();
+        let id = {
+            let mut g = s.app.engine.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            match g.start_job("test.fake", serde_json::json!({}), "Fake Job", false, |_| Ok(42), |_, v| Ok(serde_json::json!(v))).expect("start_job") {
+                Started::Job(id) => id,
+                Started::Done(_) => return, // inline fallback — nothing to assert
+            }
+        };
+        s.running_jobs.push(id);
+        for _ in 0..2000 {
+            s.tick(std::time::Duration::from_millis(1));
+            if s.running_jobs.is_empty() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(2));
+        }
+        assert!(s.running_jobs.is_empty(), "the job ended");
+        assert_eq!(s.statusbar.current_message(), "Fake Job");
+        assert!(s.app.is_dirty, "a finished job invalidates the frame");
     }
 
     /// Double-clicking the Zoom cell selects it and zooms to 100% — the
